@@ -454,12 +454,12 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
-        if path.startswith("/fonts/") and ".." not in path:
+        if (path.startswith("/fonts/") or path.startswith("/img/")) and ".." not in path:
             fp = "/opt/sub-bot/static" + path
             if os.path.isfile(fp):
                 data = open(fp, "rb").read()
                 self.send_response(200)
-                self.send_header("Content-Type", "font/otf")
+                self.send_header("Content-Type", "image/jpeg" if path.endswith(".jpg") else "font/otf")
                 self.send_header("Content-Length", str(len(data)))
                 self.send_header("Cache-Control", "public, max-age=604800")
                 self.end_headers()

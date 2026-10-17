@@ -1,0 +1,14 @@
+#!/bin/sh
+# Public: remaining time for the device that opens the page (identified by its IP).
+D=/etc/pc; R=/tmp/pc; CFG=$D/config.json; ST=$R/state.json
+printf 'Content-Type: application/json\nCache-Control: no-store\n\n'
+ip="$REMOTE_ADDR"
+mac=$(ip neigh show dev br-lan | awk -v ip="$ip" '$1==ip && $2=="lladdr" {print tolower($3); exit}')
+[ -n "$mac" ] || { echo '{"limited":false}'; exit 0; }
+act=false; grep -qx "$mac" "$R/active" 2>/dev/null && act=true
+jq -n --arg m "$mac" --argjson act "$act" --slurpfile c "$CFG" --slurpfile s "$ST" '
+  if $c[0].limits[$m] and $c[0].limits[$m].week_min==0 then {limited:false, unlimited:true}
+  elif $c[0].limits[$m] then
+    ($c[0].limits[$m].week_min*60 + ($s[0].bonus[$m]//0)) as $lim | ($s[0].used[$m]//0) as $u |
+    {limited:true, limit_s:$lim, used_s:$u, remaining_s:(([$lim-$u,0]|max)), active:$act, name:($c[0].names[$m] // "")}
+  else {limited:false, unconfigured:true} end'

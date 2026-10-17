@@ -1,0 +1,164 @@
+#!/bin/sh
+# Admin API of the router panel (protected by HTTP basic auth in uhttpd).
+D=/etc/pc; R=/tmp/pc; CFG=$D/config.json; ST=$R/state.json
+OFF=/etc/xray-tp.off
+mkdir -p "$R"
+
+BODY=""
+[ "${CONTENT_LENGTH:-0}" -gt 0 ] && BODY=$(head -c "$CONTENT_LENGTH")
+g() { printf '%s' "$BODY" | jq -r "$1 // empty" 2>/dev/null; }
+hdr() { printf 'Content-Type: application/json\nCache-Control: no-store\n\n'; }
+ok() { hdr; echo '{"ok":true}'; }
+err() { hdr; jq -nc --arg e "$1" '{ok:false,error:$e}'; }
+cfgset() { jq "$@" "$CFG" > "$CFG.t" && mv "$CFG.t" "$CFG"; }
+stset() { jq "$@" "$ST" > "$ST.t" && mv "$ST.t" "$ST"; }
+okmac() { printf '%s' "$1" | grep -qE '^([0-9a-f]{2}:){5}[0-9a-f]{2}$'; }
+tp_on() { nft list table ip xray_tp >/dev/null 2>&1; }
+
+status() {
+	hdr
+	leases=$(jq -Rn '[inputs|split(" ")|select(length>=4)|{mac:(.[1]|ascii_downcase),ip:.[2],host:.[3]}]' < /tmp/dhcp.leases 2>/dev/null || echo '[]')
+	neigh=$(ip neigh show dev br-lan | awk '$1 ~ /\./ && $2=="lladdr" {print tolower($3), $1, $4}' | jq -Rn '[inputs|split(" ")|{mac:.[0],ip:.[1],state:.[2]}]')
+	offs=$(tr 'A-Z' 'a-z' < "$OFF" 2>/dev/null | jq -Rn '[inputs|select(length>0)]')
+	active=$(jq -Rn '[inputs|select(length>0)]' < "$R/active" 2>/dev/null || echo '[]')
+	blocked=$(tr ' ' '\n' < "$R/blocked" 2>/dev/null | jq -Rn '[inputs|select(length>0)]')
+	tp=false; tp_on && tp=true
+	xr=false; pidof xray >/dev/null && xr=true
+	prof=$(jq '[.outbounds[]|select(.settings.vnext)]|length' /etc/xray-vk.json 2>/dev/null || echo 0)
+	url=$(head -n1 /etc/xray-sub.url 2>/dev/null)
+	sublog=$(tail -n 3 "$R/sub.log" 2>/dev/null)
+	wifioff=false; [ -f "$R/wifi-off" ] && wifioff=true
+	jq -n --argjson leases "$leases" --argjson neigh "$neigh" --argjson offs "$offs" --argjson active "$active" \
+		--argjson blocked "$blocked" --argjson tp "$tp" --argjson xr "$xr" --argjson prof "${prof:-0}" \
+		--arg url "$url" --arg sublog "$sublog" --argjson wifioff "$wifioff" \
+		--slurpfile cfg "$CFG" --slurpfile st "$ST" '
+	$cfg[0] as $c | $st[0] as $s |
+	(($neigh | map({key:.mac, value:.}) | from_entries)) as $nm |
+	(($leases | map({key:.mac, value:.}) | from_entries)) as $lm |
+	(($neigh | map({key:.ip, value:.mac}) | from_entries)) as $ipm |
+	(($leases | map({key:.ip, value:.host}) | from_entries)) as $iph |
+	(([$leases[] | select(($ipm[.ip] // .mac) == .mac) | .mac] + [$neigh[].mac] + ($c.limits|keys)) | unique) as $all |
+	{
+	  bypass: {enabled:$tp, xray:$xr, profiles:$prof},
+	  sub: {url:$url, log:$sublog},
+	  wifi: ($c.wifi + {off_now:$wifioff}),
+	  week: $s.week,
+	  devices: [ $all[] | . as $m |
+	    ($lm[$m]) as $l | ($nm[$m]) as $n |
+	    select(($n != null) or ($l != null) or ($c.limits[$m] != null)) |
+	    {mac:$m, ip:(($n.ip) // ($l.ip) // ""),
+	     name:($c.names[$m] // (if ($l.host // "*") != "*" then $l.host else null end) // (if ($iph[($n.ip // "")] // "*") != "*" then $iph[$n.ip] else null end) // $m),
+	     state:(($n.state) // "OFFLINE"),
+	     bypass:(($offs|index($m)) == null),
+	     limit: (if $c.limits[$m] then
+	        {unlimited:($c.limits[$m].week_min==0), week_s:($c.limits[$m].week_min*60), bonus_s:($s.bonus[$m]//0), used_s:($s.used[$m]//0),
+	         remaining_s:(if $c.limits[$m].week_min==0 then 0 else ((($c.limits[$m].week_min*60)+($s.bonus[$m]//0)-($s.used[$m]//0)) | if . < 0 then 0 else . end) end),
+	         active:(($active|index($m)) != null), blocked:(($blocked|index($m)) != null)}
+	        else null end)}
+	  ] | sort_by(.name|ascii_downcase)
+	}'
+}
+
+action=$(g .action)
+case "$action" in
+status|"") status ;;
+
+master)
+	if [ "$(g .on)" = "true" ]; then
+		echo all > /etc/xray-tp.devices
+		/etc/init.d/xray-tp enable; /etc/init.d/xray-tp restart >/dev/null 2>&1
+	else
+		/etc/init.d/xray-tp stop >/dev/null 2>&1; /etc/init.d/xray-tp disable
+	fi
+	ok ;;
+
+bypass_dev)
+	m=$(g .mac | tr 'A-Z' 'a-z'); okmac "$m" || { err "bad mac"; exit 0; }
+	touch "$OFF"; grep -v "^$m$" "$OFF" > "$OFF.t"; mv "$OFF.t" "$OFF"
+	[ "$(g .on)" = "true" ] || echo "$m" >> "$OFF"
+	tp_on && /etc/init.d/xray-tp restart >/dev/null 2>&1
+	ok ;;
+
+set_sub)
+	u=$(g .url | tr -d ' \r\n')
+	case "$u" in http://*|https://*) ;; *) err "Ссылка должна начинаться с http:// или https://"; exit 0 ;; esac
+	cp /etc/xray-sub.url /etc/xray-sub.url.bak 2>/dev/null
+	printf '%s\n' "$u" > /etc/xray-sub.url
+	: > "$R/sub.log"
+	( sh -c 'if /usr/bin/xray-sub-update.sh >> /tmp/pc/sub.log 2>&1; then echo "OK: подписка применена" >> /tmp/pc/sub.log; else cp /etc/xray-sub.url.bak /etc/xray-sub.url; echo "ОШИБКА: возвращена прежняя подписка" >> /tmp/pc/sub.log; fi' >/dev/null 2>&1 </dev/null & )
+	ok ;;
+
+wifi)
+	en=$(g .enabled); [ "$en" = "true" ] || en=false
+	o=$(g .off); n=$(g .on)
+	printf '%s' "$o" | grep -qE '^[0-2][0-9]:[0-5][0-9]$' && printf '%s' "$n" | grep -qE '^[0-2][0-9]:[0-5][0-9]$' || { err "bad time"; exit 0; }
+	cfgset --argjson e "$en" --arg o "$o" --arg n "$n" '.wifi={enabled:$e,off:$o,on:$n}'
+	ok ;;
+
+limit_set)
+	m=$(g .mac | tr 'A-Z' 'a-z'); okmac "$m" || { err "bad mac"; exit 0; }
+	w=$(g .week_min); case "$w" in ''|*[!0-9]*) w=0 ;; esac
+	cfgset --arg m "$m" --argjson w "$w" '.limits[$m]={week_min:$w}'
+	ok ;;
+
+limit_clear)
+	m=$(g .mac | tr 'A-Z' 'a-z'); okmac "$m" || { err "bad mac"; exit 0; }
+	cfgset --arg m "$m" 'del(.limits[$m])'
+	ok ;;
+
+limit_bonus)
+	m=$(g .mac | tr 'A-Z' 'a-z'); okmac "$m" || { err "bad mac"; exit 0; }
+	x=$(g .minutes); case "$x" in ''|*[!0-9]*) x=0 ;; esac
+	stset --arg m "$m" --argjson s "$((x * 60))" '.bonus[$m]=((.bonus[$m]//0)+$s)'
+	ok ;;
+
+limit_reset)
+	m=$(g .mac | tr 'A-Z' 'a-z'); okmac "$m" || { err "bad mac"; exit 0; }
+	stset --arg m "$m" 'del(.used[$m])|del(.bonus[$m])'
+	ok ;;
+
+name_set)
+	m=$(g .mac | tr 'A-Z' 'a-z'); okmac "$m" || { err "bad mac"; exit 0; }
+	nm=$(g .name | cut -c1-40)
+	if [ -n "$nm" ]; then cfgset --arg m "$m" --arg n "$nm" '.names[$m]=$n'
+	else cfgset --arg m "$m" 'del(.names[$m])'; fi
+	ok ;;
+
+ping)
+	hdr
+	T=/tmp/pc/ping.$$; rm -rf "$T"; mkdir -p "$T"
+	jq -r '.outbounds[]|select(.settings.vnext)|"\(.tag) \(.settings.vnext[0].address) \(.settings.vnext[0].port)"' /etc/xray-vk.json 2>/dev/null | {
+		while read -r tag h p; do
+			( t=$(curl -sk -o /dev/null --connect-timeout 3 -m 5 -w '%{time_connect}' "https://$h:$p/" 2>/dev/null); echo "$tag $h $p ${t:-0}" > "$T/p.$tag" ) &
+		done
+		wait; }
+	ip neigh show dev br-lan | awk '$1 ~ /\./ && $2=="lladdr" {print tolower($3), $1}' | {
+		while read -r mac ip; do
+			( r=$(ping -c1 -W1 "$ip" 2>/dev/null | sed -n 's/.*time=\([0-9.]*\).*/\1/p'); echo "$mac $ip ${r:-0}" > "$T/d.$ip" ) &
+		done
+		wait; }
+	ports=$(cat /etc/xray-vk.ports 2>/dev/null | jq -Rn '[inputs|split("|")|{n:((.[0]|tonumber)-10810),name:.[1]}]')
+	pr=$(cat "$T"/p.* 2>/dev/null | jq -Rn '[inputs|split(" ")|{tag:.[0],host:.[1],port:(.[2]|tonumber),ms:((.[3]|tonumber)*1000|round)}]')
+	dv=$(cat "$T"/d.* 2>/dev/null | jq -Rn '[inputs|split(" ")|{mac:.[0],ip:.[1],ms:(.[2]|tonumber)}]')
+	rm -rf "$T"
+	jq -n --argjson pr "${pr:-[]}" --argjson dv "${dv:-[]}" --argjson ports "${ports:-[]}" '
+		{profiles:([$pr[] | . as $x | ($x.tag|ltrimstr("p")|tonumber) as $n | $x + {name:(($ports[]|select(.n==$n)|.name) // $x.tag)}] | sort_by(.tag)),
+		 devices:$dv}' ;;
+
+sub_list|sub_create)
+	[ -s /etc/pc/server.key ] || { err "Ключ сервера не настроен"; exit 0; }
+	if [ "$action" = sub_create ]; then
+		nm=$(g .name | cut -c1-40); [ -n "$nm" ] || { err "Укажите имя"; exit 0; }
+		gb=$(g .gb); case "$gb" in ''|*[!0-9.]*) gb=0 ;; esac
+		dy=$(g .days); case "$dy" in ''|*[!0-9]*) dy=0 ;; esac
+		req=$(jq -nc --arg n "$nm" --argjson g "${gb:-0}" --argjson d "${dy:-0}" '{action:"create_client",name:$n,gb:$g,days:$d}')
+	else
+		req='{"action":"list_clients"}'
+	fi
+	hdr
+	curl -s -m 40 --resolve YOUR_DOMAIN:443:SERVER_IP -H "X-Router-Key: $(cat /etc/pc/server.key)" \
+		-H 'Content-Type: application/json' -d "$req" "https://YOUR_DOMAIN/TGAPP_PATH/" || echo '{"error":"сервер недоступен"}'
+	;;
+
+*) err "unknown action" ;;
+esac

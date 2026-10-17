@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Подписка</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+@font-face{font-family:"Scout Helvetica";src:url("fonts/HelveticaNeue-Roman.otf") format("opentype");font-weight:400;font-display:swap}
+@font-face{font-family:"Scout Helvetica";src:url("fonts/HelveticaNeue-Medium.otf") format("opentype");font-weight:500;font-display:swap}
+@font-face{font-family:"Scout Helvetica";src:url("fonts/HelveticaNeue-Bold.otf") format("opentype");font-weight:700;font-display:swap}
+:root{--night:#07090C;--night-2:#0D1117;--night-3:#161B23;--line:rgba(255,255,255,.08);--line-2:rgba(255,255,255,.14);
+      --accent:#7c47f6;--accent-hi:#a78bfa;--accent-bg:#1e1538;--text:#F2F3F5;--text-2:#D3D8DF;--muted:#A3ABB8;--danger:#E5544B;
+      --ok:#7FB069;--radius:14px;--font:"Scout Helvetica","Helvetica Neue",Helvetica,Arial,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--night);color:var(--text)}
+body{padding:18px 16px calc(24px + env(safe-area-inset-bottom,0px));font:400 15px/1.5 var(--font);-webkit-font-smoothing:antialiased;min-height:100vh}
+h1{font-size:24px;font-weight:700;margin:0 0 4px;letter-spacing:-.01em}
+.sub{color:var(--muted);font-size:13px;margin:0 0 16px}
+h2{font-size:11px;margin:22px 0 10px;color:var(--accent-hi);font-weight:500;text-transform:uppercase;letter-spacing:.18em}
+.card{background:var(--night-2);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin-bottom:10px}
+.card b{font-weight:500;font-size:16px}
+.row{display:flex;justify-content:space-between;gap:8px;font-size:14px;margin:4px 0}
+.row span:first-child{color:var(--muted)}
+button{background:var(--accent);color:#fff;border:0;border-radius:12px;padding:13px 16px;font:500 15px var(--font);width:100%;margin-top:10px;cursor:pointer;letter-spacing:.01em}
+button:active{background:#6a39e0}
+button.sec{background:transparent;color:var(--accent-hi);border:1px solid var(--accent)}
+button.small{width:auto;padding:8px 12px;font-size:13px;margin:0;border-radius:10px}
+input{width:100%;padding:12px 14px;border:1px solid var(--line-2);border-radius:12px;background:var(--night-3);color:var(--text);font:400 15px var(--font);margin-top:8px}
+input:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
+input::placeholder{color:#7d8696}
+.link{word-break:break-all;font:12.5px ui-monospace,Menlo,Consolas,monospace;background:var(--night-3);border:1px solid var(--line);padding:10px;border-radius:10px;margin-top:8px;color:var(--text-2)}
+.err{color:var(--danger);margin:10px 0;font-size:14px}
+.tabs{display:flex;gap:6px;margin-bottom:14px;background:var(--night-2);border:1px solid var(--line);border-radius:14px;padding:4px}
+.tabs button{margin:0;background:transparent;color:var(--muted);padding:10px;font-size:13px;letter-spacing:.06em;text-transform:uppercase}
+.tabs button.on{background:var(--accent);color:#fff}
+.muted{color:var(--muted);font-size:14px}
+.off{opacity:.5}
+.badge{display:inline-block;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;padding:3px 8px;border-radius:999px;border:1px solid var(--accent);color:var(--accent-hi);margin-left:6px;vertical-align:middle}
+details{background:var(--night-2);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:8px;padding:0 16px}
+details[open]{padding-bottom:12px}
+summary{cursor:pointer;padding:14px 0;font-weight:500;list-style:none;display:flex;justify-content:space-between;align-items:center}
+summary::-webkit-details-marker{display:none}
+summary::after{content:'+';color:var(--accent-hi);font-size:20px;line-height:1}
+details[open] summary::after{content:'2'}
+details p,details li{color:var(--text-2);font-size:14px;margin:6px 0}
+details ol,details ul{padding-left:20px;margin:6px 0}
+.tip{border-left:3px solid var(--accent);background:var(--accent-bg);border-radius:0 10px 10px 0;padding:10px 12px;margin:8px 0;font-size:14px;color:var(--text-2)}
+.pill{display:inline-block;font-size:12px;padding:2px 9px;border-radius:999px;background:var(--accent-bg);border:1px solid var(--accent);color:var(--accent-hi);margin:2px 4px 2px 0}
+.warn{background:#2a1416;border:1px solid var(--danger);border-radius:var(--radius);padding:12px 14px;margin-bottom:12px;font-size:14px;color:#ffd7d3}
+.warn a{color:var(--accent-hi);text-decoration:underline}
+</style>
+</head>
+<body>
+<h1 id="title">Подписка</h1>
+<p class="sub" id="subtitle">Доступ и управление</p>
+<div id="app" class="muted">Загрузка…</div>
+<script>
+const tg = window.Telegram.WebApp; tg.ready(); tg.expand();
+try { tg.setHeaderColor('#07090C'); tg.setBackgroundColor('#07090C'); } catch (e) {}
+const app = document.getElementById('app');
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function call(action, extra) {
+  const r = await fetch(location.pathname, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(Object.assign({action, initData: tg.initData}, extra||{}))});
+  return r.json();
+}
+function copy(text, btn) {
+  navigator.clipboard.writeText(text).then(()=>{const t=btn.textContent; btn.textContent='Скопировано'; setTimeout(()=>btn.textContent=t,1500)});
+}
+function clientCard(c) {
+  return `<div class="card ${c.enable?'':'off'}"><b>${esc(c.email)}</b>
+    <div class="row"><span>Трафик</span><span>${esc(c.used)} / ${esc(c.limit)}</span></div>
+    <div class="row"><span>Срок</span><span>${esc(c.expire)}</span></div>
+    <div class="link">${esc(c.link)}</div>
+    <button class="sec small" style="margin-top:8px" onclick="copy('${esc(c.link)}',this)">Копировать ссылку</button></div>`;
+}
+
+const helpHtml = () => `
+<h2>Быстрый старт</h2>
+<details open><summary>Как подключиться</summary>
+<ol>
+<li>На вкладке «Подписка» создайте подписку и нажмите «Копировать ссылку».</li>
+<li>Установите приложение-клиент: <span class="pill">Happ</span><span class="pill">Hiddify</span><span class="pill">v2rayTun</span> (iPhone), <span class="pill">Happ</span><span class="pill">Hiddify</span><span class="pill">v2rayNG</span> (Android), <span class="pill">Happ</span><span class="pill">Hiddify</span><span class="pill">v2rayN</span> (компьютер).</li>
+<li>В приложении выберите «Добавить подписку» (по ссылке из буфера) и вставьте ссылку.</li>
+<li>Обновите подписку, чтобы подтянулись все профили, выберите профиль и нажмите «Подключиться».</li>
+</ol>
+<div class="tip">Нужна свежая версия приложения: часть профилей использует современный транспорт XHTTP, старые версии его не понимают.</div>
+</details>
+
+<h2>Какой профиль выбрать</h2>
+<details><summary>Обход блокировок 1 и 2</summary>
+<p>Идут через российские CDN. Это основной вариант, когда мобильный интернет работает по белым спискам: снаружи соединение выглядит как обычный запрос к CDN.</p>
+<ul><li>Сначала пробуйте «Обход блокировок 1».</li><li>Если не подключается или медленно, переключитесь на «Обход блокировок 2».</li><li>Скорость ниже, чем у прямых профилей, это нормально.</li></ul>
+</details>
+<details><summary>🇳🇱 Нидерланды</summary>
+<p>Прямые профили, быстрее и стабильнее в обычном режиме. <b>При белых списках не работают</b>, так как адрес сервера не входит в список.</p>
+<ul><li>Дома, по Wi-Fi и в обычном мобильном режиме выбирайте их.</li><li>Если один не открывается, попробуйте «Нидерланды 2».</li></ul>
+</details>
+
+<h2>Рекомендации</h2>
+<details><summary>Чтобы всё работало стабильнее</summary>
+<ul>
+<li>Включите автообновление подписки в приложении: при смене серверов профили обновятся сами.</li>
+<li>Если что-то перестало работать, сначала обновите подписку, затем переключите профиль.</li>
+<li>Не передавайте ссылку другим людям: она личная, по ней видно ваш трафик.</li>
+<li>Не оставляйте приложение в режиме экономии батареи: система может усыплять VPN.</li>
+<li>На телефоне включайте VPN до открытия нужных приложений, а не после.</li>
+</ul>
+</details>
+<details><summary>Роутер</summary>
+<p>Подписку можно добавить на роутер с клиентом Xray (OpenWrt: Passwall, Xray). Ядро <b>sing-box</b> не поддерживает часть наших профилей (CDN-режимы), для них нужно ядро Xray.</p>
+</details>
+
+<h2>Если не работает</h2>
+<details><summary>Частые проблемы</summary>
+<ul>
+<li><b>Нет пинга (N/A):</b> сначала подождите несколько секунд, затем обновите подписку и повторите проверку. У профилей через CDN первое соединение дольше.</li>
+<li><b>Интернет пропал после подключения:</b> смените профиль (Обход 1 → Обход 2 → Нидерланды).</li>
+<li><b>Один сайт не открывается:</b> отключите и снова включите VPN, перезапустите приложение.</li>
+<li><b>Ссылка не добавляется:</b> проверьте, что скопирована вся ссылка целиком, без пробелов.</li>
+<li>Не помогло: напишите администратору и укажите ваш Telegram ID (он виден в приложении) и название профиля.</li>
+</ul>
+</details>
+<p class="muted" style="margin-top:14px">Нужна помощь: <b>${esc(me.support)}</b>. Ваш Telegram ID: <b>${esc(me.id)}</b></p>`;
+
+
+function proxyCard(p, admin) {
+  return `<div class="card ${p.enable?'':'off'}"><b>${esc(p.name)}</b><span class="badge">:${p.port}</span>
+    <div class="row"><span>Сервер</span><span>${esc(p.host)}:${p.port}</span></div>
+    <div class="row"><span>Логин</span><span>${esc(p.user)}</span></div>
+    <div class="row"><span>Пароль</span><span>${esc(p.pass)}</span></div>
+    <div class="link">${esc(p.link)}</div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="small" onclick="tg.openTelegramLink('${esc(p.link)}')">Добавить в Telegram</button>
+      <button class="sec small" onclick="copy('${esc(p.link)}',this)">Копировать</button>
+      ${admin ? `<button class="sec small" onclick="toggleProxy(${p.port},${p.enable})">${p.enable?'Отключить':'Включить'}</button>` : ''}
+    </div></div>`;
+}
+async function toggleProxy(port, on) { await call(on ? 'proxy_disable' : 'proxy_enable', {port}); setTab('proxy'); }
+async function renderProxy(p) {
+  const r = await call('proxies');
+  if (r.error) { p.innerHTML = `<div class="err">${esc(r.error)}</div>`; return; }
+  const list = r.proxies || [];
+  const lim = me.proxy_limit;
+  const can = lim === null || list.length < lim;
+  p.innerHTML = '<h2>Прокси для Telegram (SOCKS5)</h2>' +
+    (list.length ? list.map(x => proxyCard(x, me.admin)).join('') : '<div class="card">Прокси ещё нет.</div>') +
+    (can ? `<div class="card"><input id="plabel" placeholder="Название (необязательно, латиницей)"><button id="pmk">Создать прокси</button><div id="pmsg"></div></div>`
+         : `<p class="muted">Лимит исчерпан (${lim}). Нужен ещё прокси: обратитесь к администратору.</p>`) +
+    `<p class="muted">Прокси работают с логином и паролем. Не делитесь ссылкой: она личная. При белых списках оператора могут не открываться: тогда используйте профили «Обход блокировок».</p>`;
+  const mk = document.getElementById('pmk');
+  if (mk) mk.onclick = async () => {
+    mk.disabled = true;
+    const res = await call('proxy_create', {label: document.getElementById('plabel').value.trim()});
+    if (res.error) { document.getElementById('pmsg').innerHTML = `<div class="err">${esc(res.error)}</div>`; mk.disabled = false; }
+    else renderProxy(p);
+  };
+}
+
+let me = null, tab = 'mine';
+async function render() {
+  me = await call('me');
+  if (me.error) { app.innerHTML = `<div class="err">${esc(me.error)}</div>`; return; }
+  document.getElementById('title').innerHTML = 'Привет, ' + esc(me.name) + (me.admin ? '<span class="badge">админ</span>' : '');
+  if (!me.allowed) {
+    app.innerHTML = `<div class="card">Доступа пока нет.<br>Ваш ID: <b>${esc(me.id)}</b><br><span class="muted">Передайте его администратору.</span></div>`;
+    return;
+  }
+  let html = '';
+  html += `<div class="tabs">
+    <button class="${tab==='mine'?'on':''}" onclick="setTab('mine')">Подписка</button>
+    <button class="${tab==='proxy'?'on':''}" onclick="setTab('proxy')">Прокси</button>
+    <button class="${tab==='help'?'on':''}" onclick="setTab('help')">Инструкция</button>` +
+    (me.admin ? `<button class="${tab==='clients'?'on':''}" onclick="setTab('clients')">Клиенты</button>
+    <button class="${tab==='users'?'on':''}" onclick="setTab('users')">Доступ</button>` : '') + `</div>`;
+  const warn = (me.down && me.down.length)
+    ? `<div class="warn">⚠️ Сейчас недоступно: ${me.down.map(esc).join(', ')}. Используйте другой профиль. Если проблема не уходит, напишите <a href="#" onclick="tg.openTelegramLink('https://t.me/${esc(me.support.replace('@',''))}');return false">${esc(me.support)}</a>.</div>` : '';
+  app.innerHTML = warn + html + '<div id="pane"></div>';
+  await pane();
+}
+async function setTab(t){ tab = t; await render(); }
+async function pane() {
+  const p = document.getElementById('pane');
+  if (tab === 'proxy') { await renderProxy(p); }
+  else if (tab === 'help') { p.innerHTML = helpHtml(); }
+  else if (tab === 'mine') {
+    const list = me.clients || [];
+    const used = list.length, lim = me.limit;
+    const canMake = lim === null || used < lim;
+    p.innerHTML = (list.length ? `<h2>Ваши подписки${lim === null ? '' : ` · ${used} из ${lim}`}</h2>` + list.map(clientCard).join('') :
+        `<div class="card">У вас ещё нет подписки.</div>`) +
+      (canMake ? `<button id="mk">${list.length ? 'Создать ещё одну подписку' : 'Создать мою подписку'}</button>` :
+        `<p class="muted">Лимит подписок исчерпан. Лишнюю можно заменить через администратора.</p>`) + '<div id="msg"></div>';
+    const mk = document.getElementById('mk');
+    if (mk) mk.onclick = async () => {
+      mk.disabled = true;
+      const r = await call('create_self');
+      if (r.error) { document.getElementById('msg').innerHTML = `<div class="err">${esc(r.error)}</div>`; mk.disabled = false; }
+      else render();
+    };
+  } else if (tab === 'clients') {
+    p.innerHTML = `<h2>Новая подписка</h2><div class="card">
+      <input id="nm" placeholder="Имя (латиницей, напр. ivan)">
+      <input id="gb" type="number" placeholder="Лимит ГБ (пусто = без лимита)">
+      <input id="dy" type="number" placeholder="Срок, дней (пусто = без срока)">
+      <button id="mk">Создать</button><div id="msg"></div></div><h2>Все клиенты</h2><div id="list" class="muted">Загрузка…</div>`;
+    document.getElementById('mk').onclick = async () => {
+      const r = await call('create_client', {name: nm.value.trim(), gb: gb.value, days: dy.value});
+      if (r.error) document.getElementById('msg').innerHTML = `<div class="err">${esc(r.error)}</div>`;
+      else { document.getElementById('msg').innerHTML = clientCard(r.client); loadClients(); }
+    };
+    loadClients();
+  } else if (tab === 'users') {
+    p.innerHTML = `<h2>Разрешить доступ</h2><div class="card">
+      <input id="uid" inputmode="numeric" placeholder="Telegram ID человека">
+      <input id="note" placeholder="Заметка (имя)">
+      <button id="add">Добавить</button><div id="msg"></div></div>
+      <p class="muted">Человек узнаёт свой ID, написав боту /start.</p><h2>Разрешённые</h2><div id="ul" class="muted">Загрузка…</div>`;
+    document.getElementById('add').onclick = async () => {
+      const r = await call('add_user', {id: uid.value.trim(), note: note.value.trim()});
+      if (r.error) document.getElementById('msg').innerHTML = `<div class="err">${esc(r.error)}</div>`;
+      else { uid.value=''; note.value=''; loadUsers(); }
+    };
+    loadUsers();
+  }
+}
+async function loadClients() {
+  const r = await call('list_clients'); const el = document.getElementById('list'); if (!el) return;
+  if (r.error) { el.innerHTML = `<div class="err">${esc(r.error)}</div>`; return; }
+  el.className = '';
+  el.innerHTML = r.clients.map(c => clientCard(c) +
+    `<button class="sec small" style="margin:-4px 0 12px" onclick="toggle('${esc(c.email)}',${c.enable})">${c.enable?'Отключить':'Включить'}</button>`).join('')
+    || '<div class="muted">Пока никого нет</div>';
+}
+async function toggle(email, on) {
+  await call(on ? 'disable_client' : 'enable_client', {email}); loadClients();
+}
+async function loadUsers() {
+  const r = await call('list_users'); const el = document.getElementById('ul'); if (!el) return;
+  el.className = '';
+  el.innerHTML = (r.users||[]).map(u => `<div class="card"><b>${esc(u.id)}</b> ${esc(u.note||'')}
+    <div class="row"><span>Подписка</span><span>${esc(u.email||'ещё не создана')}</span></div>
+    <button class="sec small" style="margin-top:8px" onclick="rm('${esc(u.id)}')">Убрать доступ</button></div>`).join('')
+    || '<div class="muted">Список пуст</div>';
+}
+async function rm(id) { await call('remove_user', {id}); loadUsers(); }
+render();
+</script>
+</body>
+</html>

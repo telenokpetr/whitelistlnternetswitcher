@@ -1,0 +1,55 @@
+#!/bin/sh /etc/rc.common
+# Transparent redirect of LAN traffic to Xray (tproxy). /etc/xray-tp.devices: "all" or a list of IPs.
+# /etc/xray-tp.off: MAC addresses that are NOT redirected (managed by the panel). stop = back to direct.
+START=96
+STOP=5
+
+DEVFILE=/etc/xray-tp.devices
+OFFFILE=/etc/xray-tp.off
+PORT=12345
+SERVERS="194.39.110.184, 81.31.209.17, 5.181.23.229"
+
+start() {
+	[ -s "$DEVFILE" ] || { echo "xray-tp: $DEVFILE is empty, nothing to do"; return 1; }
+	i=0
+	while [ $i -lt 30 ]; do
+		netstat -lnt 2>/dev/null | grep -q ":$PORT " && break
+		i=$((i+1)); sleep 1
+	done
+	netstat -lnt 2>/dev/null | grep -q ":$PORT " || { echo "xray-tp: Xray is not listening on $PORT, not starting"; return 1; }
+	DEV=$(tr -s ' \n\t' ' ' < "$DEVFILE" | sed 's/^ //; s/ $//')
+	if [ "$DEV" = "all" ]; then
+		FILTER=""
+	else
+		FILTER="ip saddr != { $(echo $DEV | sed 's/ /, /g') } return"
+	fi
+	OFFRULE=""
+	if [ -s "$OFFFILE" ]; then
+		OFFRULE="ether saddr { $(tr -s ' \n\t' ' ' < "$OFFFILE" | sed 's/^ //; s/ $//; s/ /, /g') } return"
+	fi
+	ip rule add fwmark 1 lookup 100 2>/dev/null
+	ip route add local 0.0.0.0/0 dev lo table 100 2>/dev/null
+	nft delete table ip xray_tp 2>/dev/null
+	nft -f - <<EOF
+table ip xray_tp {
+	chain pre {
+		type filter hook prerouting priority mangle; policy accept;
+		iifname != "br-lan" return
+		$FILTER
+		$OFFRULE
+		ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4, $SERVERS } return
+		udp dport { 53, 123 } return
+		udp dport 443 drop
+		meta l4proto tcp counter tproxy to :$PORT meta mark set 1 accept
+		meta l4proto udp counter tproxy to :$PORT meta mark set 1 accept
+	}
+}
+EOF
+	echo "xray-tp: redirecting: $DEV"
+}
+
+stop() {
+	nft delete table ip xray_tp 2>/dev/null
+	ip rule del fwmark 1 lookup 100 2>/dev/null
+	ip route del local 0.0.0.0/0 dev lo table 100 2>/dev/null
+}

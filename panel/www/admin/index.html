@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Панель роутера</title>
+<style>
+:root{--bg:#eef2f4;--card:#fff;--tx:#1b1f24;--mut:#6b7280;--line:#dde3e7;--acc:#1976d2;--ok:#009a4c;--bad:#d00000;--warn:#f0c629;--logo:url(/logo.svg)}
+@media (prefers-color-scheme:dark){:root{--bg:#16191d;--card:#1f2327;--tx:#e8eaed;--mut:#98a3ad;--line:#2d343a;--acc:#4da1c0;--ok:#00c46a;--bad:#e8210d;--warn:#efbd0b;--logo:url(/logo-dark.svg)}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:760px;margin:0 auto;padding:16px}
+.hd{display:flex;align-items:center;gap:12px;margin:4px 0 14px}.hd h1{margin:0}
+.lg{width:40px;height:40px;background:var(--logo) center/contain no-repeat;display:block;flex:none}
+h1{font-size:20px}
+summary{cursor:pointer;list-style:none}summary::-webkit-details-marker{display:none}
+summary:before{content:"▸ ";color:var(--acc)}details[open]>summary:before{content:"▾ "}
+.pg{display:flex;align-items:center;gap:8px;padding:4px 0;border-top:1px solid var(--line)}.pg:first-child{border-top:0}
+.pg .ms{margin-left:auto;font-variant-numeric:tabular-nums}
+.dot.bad{background:var(--bad)}.dot.warn{background:var(--warn)}
+h2{font-size:16px;margin:22px 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:10px}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.grow{flex:1;min-width:0}
+.mut{color:var(--mut);font-size:13px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--mut);display:inline-block}
+.dot.on{background:var(--ok)}
+.sw{position:relative;width:44px;height:26px;flex:none}
+.sw input{opacity:0;width:0;height:0}
+.sw span{position:absolute;inset:0;background:var(--line);border-radius:26px;transition:.2s;cursor:pointer}
+.sw span:before{content:"";position:absolute;width:20px;height:20px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.sw input:checked+span{background:var(--ok)}
+.sw input:checked+span:before{transform:translateX(18px)}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--tx);border-radius:8px;padding:6px 10px;cursor:pointer}
+button.p{background:var(--acc);border-color:var(--acc);color:#fff}
+button.u{border-color:var(--ok);color:var(--ok);font-weight:600}
+button.d{color:var(--bad)}
+input[type=text],input[type=time],textarea{font:inherit;color:var(--tx);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 9px}
+textarea{width:100%;min-height:64px;resize:vertical}
+.bar{height:8px;border-radius:8px;background:var(--line);overflow:hidden;margin:8px 0 6px}
+.bar i{display:block;height:100%;background:var(--ok);transition:width .5s}
+.timer{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+.tag{font-size:12px;border-radius:6px;padding:2px 7px;background:var(--line)}
+.tag.run{background:var(--ok);color:#fff}.tag.blk{background:var(--bad);color:#fff}
+.name{font-weight:600;cursor:pointer}
+.msg{font-size:13px;margin-top:6px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<main>
+<header class="hd"><i class="lg"></i><h1>RouteRich · Панель</h1></header>
+
+<details class="card" id="dash"><summary><b>Дашборд</b> <span class="mut" id="dsum">…</span></summary>
+  <div class="mut" style="margin:10px 0 4px">Подписки (сервер доступен, мс)</div><div id="dprof"></div>
+  <div class="mut" style="margin:12px 0 4px">Устройства (ping, мс)</div><div id="ddev"></div>
+</details>
+
+<div class="card row">
+  <div class="grow"><b>Обход блокировок</b><div class="mut" id="mst">…</div></div>
+  <label class="sw"><input type="checkbox" id="master"><span></span></label>
+</div>
+
+<h2>Устройства</h2>
+<div id="devs"></div>
+
+<h2>Создать подписку</h2>
+<div class="card">
+  <div class="row"><input type="text" id="cn" placeholder="Имя (латиницей)" style="flex:1;min-width:140px">
+    <input type="text" id="cg" placeholder="ГБ (0 = без лимита)" style="width:150px" inputmode="decimal">
+    <input type="text" id="cd" placeholder="Дней (0 = бессрочно)" style="width:160px" inputmode="numeric">
+    <button class="p" id="ccreate">Создать</button></div>
+  <div class="msg mut" id="cmsg"></div>
+</div>
+
+<h2>Подписка на роутере</h2>
+<div class="card">
+  <textarea id="sub" spellcheck="false" placeholder="https://…"></textarea>
+  <div class="row" style="margin-top:8px"><button class="p" id="subsave">Сохранить и применить</button><span class="mut" id="sst"></span></div>
+  <div class="msg mut" id="slog"></div>
+</div>
+</main>
+
+<script>
+const $=s=>document.querySelector(s);
+let S=null, snapAt=0, busy=false;
+async function api(body){
+  const r=await fetch('/cgi-bin/api',{method:'POST',body:JSON.stringify(body)});
+  return r.json();
+}
+function fmt(s){s=Math.max(0,Math.floor(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;
+  return h+':'+String(m).padStart(2,'0')+':'+String(x).padStart(2,'0');}
+function fmtH(s){const m=Math.round(s/60);return Math.floor(m/60)+' ч '+(m%60?m%60+' мин':'');}
+function esc(t){return String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+async function load(){
+  if(busy) return;
+  try{ S=await api({action:'status'}); snapAt=Date.now(); render(); }catch(e){}
+}
+function render(){
+  $('#master').checked=S.bypass.enabled;
+  $('#mst').textContent=(S.bypass.enabled?'Включён':'Выключен')+' · Xray '+(S.bypass.xray?'работает':'остановлен')+' · профилей: '+S.bypass.profiles;
+  const act=document.activeElement;
+  if(act!==$('#sub')&&!$('#sub').dataset.dirty) $('#sub').value=S.sub.url;
+  $('#slog').textContent=S.sub.log||'';
+  let h='';
+  for(const d of S.devices){
+    const on=d.state==='REACHABLE'||d.state==='DELAY'||d.state==='PROBE';
+    h+=`<div class="card" data-mac="${d.mac}">
+      <div class="row"><span class="dot ${on?'on':''}"></span>
+        <div class="grow"><span class="name" data-act="rename">${esc(d.name)}</span><div class="mut">${esc(d.ip)} · ${d.mac}</div></div>
+        <span class="mut">Обход</span>
+        <label class="sw"><input type="checkbox" data-act="bypass" ${d.bypass?'checked':''}><span></span></label></div>`;
+    if(d.limit&&d.limit.unlimited){
+      h+=`<div class="row" style="margin-top:10px"><span class="tag run">без ограничений</span><span class="mut">лимит 0 = безлимит</span>
+        <button data-act="limit">Задать лимит</button><button class="d" data-act="unlimit">Выключить интернет</button></div>`;
+    }else if(d.limit){
+      const L=d.limit,pct=L.week_s?Math.min(100,L.remaining_s/(L.week_s+L.bonus_s)*100):0;
+      h+=`<div style="margin-top:10px"><div class="row"><span class="timer" data-rem="${L.remaining_s}" data-run="${L.active&&!L.blocked?1:0}">${fmt(L.remaining_s)}</span>
+        <span class="mut">осталось на неделе из ${fmtH(L.week_s+L.bonus_s)}</span>
+        ${L.blocked?'<span class="tag blk">время вышло</span>':L.active?'<span class="tag run">идёт отсчёт</span>':'<span class="tag">нет трафика</span>'}</div>
+        <div class="bar"><i style="width:${pct}%"></i></div>
+        <div class="row"><button data-act="bonus" data-v="15">+15 мин</button><button data-act="bonus" data-v="30">+30 мин</button><button data-act="bonus" data-v="60">+1 час</button>
+        <button data-act="reset">Сбросить</button><button data-act="limit">Изменить лимит</button><button class="u" data-act="inf">Unlimited</button><button class="d" data-act="unlimit">Выключить интернет</button></div></div>`;
+    }else{
+      h+=`<div class="row" style="margin-top:10px"><span class="tag blk">интернет выключен</span><span class="mut">лимит не задан</span>
+        <button class="p" data-act="limit">Задать недельный лимит</button><button class="u" data-act="inf">Unlimited</button></div>`;
+    }
+    h+='</div>';
+  }
+  $('#devs').innerHTML=h||'<div class="card mut">Нет устройств</div>';
+}
+setInterval(()=>{ // local countdown between polls
+  document.querySelectorAll('.timer').forEach(el=>{
+    if(el.dataset.run!=='1') return;
+    const left=Number(el.dataset.rem)-(Date.now()-snapAt)/1000;
+    el.textContent=fmt(left);
+  });
+},1000);
+setInterval(load,5000);
+
+$('#devs').addEventListener('click',async e=>{
+  const b=e.target.closest('[data-act]'); if(!b||b.tagName==='INPUT') return;
+  const mac=b.closest('.card').dataset.mac, act=b.dataset.act;
+  const dev=S.devices.find(x=>x.mac===mac);
+  if(act==='rename'){const n=prompt('Название устройства',dev.name);if(n===null)return;await api({action:'name_set',mac,name:n});}
+  else if(act==='bonus'){await api({action:'limit_bonus',mac,minutes:Number(b.dataset.v)});}
+  else if(act==='inf'){await api({action:'limit_set',mac,week_min:0});}
+  else if(act==='reset'){if(!confirm('Обнулить использованное время на этой неделе?'))return;await api({action:'limit_reset',mac});}
+  else if(act==='limit'){
+    const cur=dev.limit?(dev.limit.week_s/3600):10;
+    const v=prompt('Часов интернета в неделю (например 7 или 3.5). 0 = без ограничений. Сбрасывается в понедельник.',cur);if(v===null)return;
+    const m=Math.round(parseFloat(String(v).replace(',','.'))*60);
+    if(!(m>=0)){alert('Нужно число');return;}
+    await api({action:'limit_set',mac,week_min:m});
+  }else if(act==='unlimit'){if(!confirm('Выключить интернет на этом устройстве, пока не задан лимит?'))return;await api({action:'limit_clear',mac});}
+  load();
+});
+$('#devs').addEventListener('change',async e=>{
+  const i=e.target; if(i.dataset.act!=='bypass') return;
+  busy=true; await api({action:'bypass_dev',mac:i.closest('.card').dataset.mac,on:i.checked}); busy=false; load();
+});
+$('#master').addEventListener('change',async e=>{
+  busy=true; await api({action:'master',on:e.target.checked}); busy=false; load();
+});
+$('#sub').addEventListener('input',()=>{$('#sub').dataset.dirty=1;});
+$('#subsave').onclick=async()=>{
+  const r=await api({action:'set_sub',url:$('#sub').value});
+  if(!r.ok){$('#sst').textContent=r.error;return;}
+  delete $('#sub').dataset.dirty; $('#sst').textContent='Применяю… это занимает до минуты';
+  let t=0; const iv=setInterval(async()=>{await load();t++;
+    if(/^(OK|ОШИБКА)/m.test(S.sub.log)||t>20){clearInterval(iv);$('#sst').textContent='';}},4000);
+};
+const dash=$('#dash');
+try{dash.open=localStorage.getItem('dash')!=='0';}catch(e){}
+dash.addEventListener('toggle',()=>{try{localStorage.setItem('dash',dash.open?'1':'0');}catch(e){} if(dash.open)ping();});
+const cls=ms=>ms<=0?'bad':ms>400?'warn':'on';
+async function ping(){
+  if(document.hidden) return;
+  try{
+    const r=await api({action:'ping'});
+    const names={}; if(S) S.devices.forEach(d=>names[d.mac]=d.name);
+    $('#dprof').innerHTML=r.profiles.map(p=>`<div class="pg"><span class="dot ${cls(p.ms)}"></span><span>${esc(p.name)}</span><span class="mut">${esc(p.host)}:${p.port}</span><span class="ms">${p.ms>0?p.ms+' мс':'нет ответа'}</span></div>`).join('')||'<div class="mut">нет данных</div>';
+    $('#ddev').innerHTML=r.devices.map(d=>`<div class="pg"><span class="dot ${cls(d.ms)}"></span><span>${esc(names[d.mac]||d.mac)}</span><span class="mut">${esc(d.ip)}</span><span class="ms">${d.ms>0?d.ms+' мс':'нет ответа'}</span></div>`).join('')||'<div class="mut">нет данных</div>';
+    const pu=r.profiles.filter(p=>p.ms>0).length,du=r.devices.filter(d=>d.ms>0).length;
+    $('#dsum').textContent=`· подписки ${pu}/${r.profiles.length} · устройства ${du}/${r.devices.length}`;
+  }catch(e){}
+}
+setInterval(()=>{if(dash.open)ping();},15000);
+load().then(()=>{ping();});
+
+let newLink='';
+$('#cmsg').addEventListener('click',async e=>{
+  const b=e.target.closest('[data-sub]'); if(!b||!newLink) return;
+  if(b.dataset.sub==='copy'){try{await navigator.clipboard.writeText(newLink);b.textContent='Скопировано';}catch(_){prompt('Ссылка',newLink);}}
+  else if(confirm('Использовать эту подписку на роутере?')){
+    const r=await api({action:'set_sub',url:newLink}); $('#sub').value=newLink; b.textContent=r.ok?'Применяю…':r.error; setTimeout(load,4000);}
+});
+$('#ccreate').onclick=async()=>{
+  const name=$('#cn').value.trim(); if(!name){$('#cmsg').textContent='Укажите имя';return;}
+  $('#cmsg').textContent='Создаю…';
+  const r=await api({action:'sub_create',name,gb:$('#cg').value.trim(),days:$('#cd').value.trim()});
+  if(r.error){$('#cmsg').textContent=r.error;return;}
+  newLink=r.client.link; $('#cn').value='';
+  $('#cmsg').innerHTML='Готово: <b>'+esc(newLink)+'</b><div class="row" style="margin-top:6px"><button data-sub="copy">Копировать</button><button data-sub="use">На роутер</button></div>';
+};
+</script>
+</body>
+</html>

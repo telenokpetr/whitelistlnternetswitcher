@@ -1,0 +1,5 @@
+__pycache__/
+*.pre-*
+*.bak
+*.key
+httpd.conf

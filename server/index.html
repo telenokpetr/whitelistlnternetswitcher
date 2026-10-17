@@ -23,8 +23,8 @@
 html,body{margin:0;background:var(--bg2);color:var(--text)}
 body{font:400 15px/1.5 var(--font);-webkit-font-smoothing:antialiased;min-height:100vh;
      background:linear-gradient(180deg,var(--bg) 0%,var(--bg2) 100%) fixed;padding-bottom:calc(92px + env(safe-area-inset-bottom,0px))}
-.hero{height:min(66vw,320px);background:var(--bg) url(img/hero.jpg) center top/cover no-repeat;position:relative}
-.slogan{position:absolute;left:20px;bottom:50px;z-index:2;font-size:clamp(17px,5vw,26px);font-weight:800;line-height:1.15;text-shadow:0 3px 12px #000}
+.hero{max-width:560px;margin:0 auto;height:min(66vw,320px);background:var(--bg) url(img/hero.jpg) center top/cover no-repeat;position:relative}
+.slogan{position:absolute;left:20px;right:12px;bottom:50px;z-index:2;font-size:clamp(17px,5vw,26px);font-weight:800;line-height:1.15;text-shadow:0 3px 12px #000}
 .hero:after{content:"";position:absolute;inset:auto 0 0 0;height:55%;background:linear-gradient(180deg,rgba(10,18,32,0),var(--bg))}
 .wrap{padding:0 14px;max-width:560px;margin:0 auto}
 .hello{margin-top:-46px;position:relative;z-index:1}

@@ -34,6 +34,8 @@ WEBTOK = {}       # Telegram login token -> {"uid": None | str, "exp": ts}
 EMAIL_CODES = {}  # email -> {"hash": str, "exp": ts, "tries": int, "sent": ts}
 ADMIN_LIMIT = int(os.environ.get("ADMIN_LIMIT", "10"))      # subscriptions for admins added by the owner
 ADMIN_MAX_DAYS = int(os.environ.get("ADMIN_MAX_DAYS", "90"))  # longest term they can give
+OPEN_REG = os.environ.get("OPEN_REG", "1") == "1"          # anyone who opens the bot becomes a regular member
+OPEN_REG_DAILY = int(os.environ.get("OPEN_REG_DAILY", "30"))  # cap on new members per 24 h
 SUB_DAYS = int(os.environ.get("SUB_DAYS", "30"))
 PROTECTED = {x.strip().lower() for x in os.environ.get(
     "PROTECTED_EMAILS", "phone,PCClaudeCode,RouterRR,Pixel8my,Pyxel,RR,Telenokpetr,AiClaude").split(",") if x.strip()}
@@ -348,6 +350,23 @@ def _mail_code(em, code):
         print("mail error:", type(e).__name__, str(e)[:80], flush=True)
 
 
+def ensure_user(uid, name=""):
+    """Self-registration: a regular member (3 monthly subscriptions) is created on first contact."""
+    if uid in ADMINS:
+        return True
+    with LOCK:
+        users = load_users()
+        if uid in users:
+            return True
+        if not OPEN_REG or not uid.isdigit():
+            return False
+        if sum(1 for v in users.values() if v.get("joined", 0) > time.time() - 86400) >= OPEN_REG_DAILY:
+            return False
+        users[uid] = {"note": str(name)[:60], "joined": time.time(), "auto": True}
+        save_users(users)
+        return True
+
+
 def sync_username(uid, username):
     """Store the nick and rename this user's old tg<id>-style subscriptions to it."""
     with LOCK:
@@ -378,6 +397,9 @@ def api(user, req):
     users = load_users()
     admin = owner or users.get(uid, {}).get("role") == "admin"
     allowed = admin or uid in users
+    if not allowed and ensure_user(uid, user.get("first_name", "")):
+        users = load_users()
+        allowed = True
     act = req.get("action")
     if allowed and user.get("username") and act == "me":
         try:
@@ -400,7 +422,7 @@ def api(user, req):
             info["proxy_limit"] = None if admin else PROXY_LIMIT
         return info
     if not allowed:
-        return {"error": "Нет доступа. Передайте администратору ваш ID: " + uid}
+        return {"error": "Регистрация сейчас ограничена, попробуйте завтра. Ваш ID: " + uid}
     if act == "renew":
         email = str(req.get("email", ""))
         if not owner and email not in user_emails(users.get(uid, {})):
@@ -1065,6 +1087,7 @@ def handle(msg):
         return
     text = (msg.get("text") or "").strip()
     cmd = text.split()[0].split("@")[0].lower() if text else ""
+    ensure_user(uid, msg["from"].get("first_name", ""))
     users = load_users()
     allowed = uid in ADMINS or uid in users
     print(f"msg uid={uid} cmd={cmd} allowed={allowed}", flush=True)

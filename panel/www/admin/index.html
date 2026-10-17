@@ -3,23 +3,28 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Панель роутера</title>
+<title>Дед Обход · Панель</title>
+<link rel="icon" type="image/png" sizes="32x32" href="../assets/icon-32.png">
+<link rel="icon" type="image/png" sizes="64x64" href="../assets/icon-64.png">
+<link rel="apple-touch-icon" href="../assets/icon-180.png">
+
 <style>
-:root{--bg:#eef2f4;--card:#fff;--tx:#1b1f24;--mut:#6b7280;--line:#dde3e7;--acc:#1976d2;--ok:#009a4c;--bad:#d00000;--warn:#f0c629;--logo:url(/logo.svg)}
-@media (prefers-color-scheme:dark){:root{--bg:#16191d;--card:#1f2327;--tx:#e8eaed;--mut:#98a3ad;--line:#2d343a;--acc:#4da1c0;--ok:#00c46a;--bad:#e8210d;--warn:#efbd0b;--logo:url(/logo-dark.svg)}}
+:root{--bg:#0a1220;--bg2:#070c16;--card:#101c33;--card2:#0b1425;--tx:#F2F4F8;--mut:#93a1b8;--line:#1d2e4d;--acc:#e5261c;--acc2:#b3120d;--cyan:#3db8ff;--ok:#35e08a;--bad:#ff5a4f;--warn:#efbd0b;color-scheme:dark}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+body{margin:0;background:linear-gradient(180deg,var(--bg),var(--bg2)) fixed;color:var(--tx);font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 main{max-width:760px;margin:0 auto;padding:16px}
-.hd{display:flex;align-items:center;gap:12px;margin:4px 0 14px}.hd h1{margin:0}
-.lg{width:40px;height:40px;background:var(--logo) center/contain no-repeat;display:block;flex:none}
+.hero{height:150px;border-radius:0 0 20px 20px;margin:-16px -16px 0;background:var(--bg) url(../assets/hero.jpg) center 18%/cover no-repeat;position:relative}
+.hero:after{content:"";position:absolute;inset:auto 0 0 0;height:60%;background:linear-gradient(180deg,rgba(10,18,32,0),var(--bg))}
+.hd{display:flex;align-items:center;gap:12px;margin:-34px 0 14px;position:relative;z-index:1}.hd h1{margin:0}
+.lg{width:56px;height:56px;border-radius:50%;border:2px solid #f2e4cb;background:url(../assets/avatar-round.png) center/cover;display:block;flex:none;box-shadow:0 4px 16px rgba(0,0,0,.5)}
 h1{font-size:20px}
 summary{cursor:pointer;list-style:none}summary::-webkit-details-marker{display:none}
 summary:before{content:"▸ ";color:var(--acc)}details[open]>summary:before{content:"▾ "}
 .pg{display:flex;align-items:center;gap:8px;padding:4px 0;border-top:1px solid var(--line)}.pg:first-child{border-top:0}
 .pg .ms{margin-left:auto;font-variant-numeric:tabular-nums}
 .dot.bad{background:var(--bad)}.dot.warn{background:var(--warn)}
-h2{font-size:16px;margin:22px 0 8px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:10px}
+h2{font-size:12px;margin:22px 2px 8px;color:var(--cyan);font-weight:500;text-transform:uppercase;letter-spacing:.16em}
+.card{background:linear-gradient(180deg,var(--card),var(--card2));border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:10px}
 .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .grow{flex:1;min-width:0}
 .mut{color:var(--mut);font-size:13px}
@@ -31,24 +36,25 @@ h2{font-size:16px;margin:22px 0 8px}
 .sw span:before{content:"";position:absolute;width:20px;height:20px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
 .sw input:checked+span{background:var(--ok)}
 .sw input:checked+span:before{transform:translateX(18px)}
-button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--tx);border-radius:8px;padding:6px 10px;cursor:pointer}
-button.p{background:var(--acc);border-color:var(--acc);color:#fff}
+button{font:inherit;border:1px solid var(--line);background:#0e1a2f;color:var(--tx);border-radius:999px;padding:6px 14px;cursor:pointer}
+button.p{background:linear-gradient(180deg,#f0291f,var(--acc2));border-color:transparent;color:#fff;font-weight:700;box-shadow:0 4px 14px rgba(229,38,28,.35)}
 button.u{border-color:var(--ok);color:var(--ok);font-weight:600}
 button.d{color:var(--bad)}
 input[type=text],input[type=time],textarea{font:inherit;color:var(--tx);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 9px}
 textarea{width:100%;min-height:64px;resize:vertical}
 .bar{height:8px;border-radius:8px;background:var(--line);overflow:hidden;margin:8px 0 6px}
 .bar i{display:block;height:100%;background:var(--ok);transition:width .5s}
-.timer{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+.timer{color:#fff;font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
 .tag{font-size:12px;border-radius:6px;padding:2px 7px;background:var(--line)}
-.tag.run{background:var(--ok);color:#fff}.tag.blk{background:var(--bad);color:#fff}
+.tag.run{background:var(--ok);color:#04150c}.tag.blk{background:var(--bad);color:#fff}
 .name{font-weight:600;cursor:pointer}
 .msg{font-size:13px;margin-top:6px;white-space:pre-wrap}
 </style>
 </head>
 <body>
 <main>
-<header class="hd"><i class="lg"></i><h1>RouteRich · Панель</h1></header>
+<div class="hero"></div>
+<header class="hd"><i class="lg"></i><h1>Дед Обход · Панель</h1></header>
 
 <details class="card" id="dash"><summary><b>Дашборд</b> <span class="mut" id="dsum">…</span></summary>
   <div class="mut" style="margin:10px 0 4px">Подписки (сервер доступен, мс)</div><div id="dprof"></div>

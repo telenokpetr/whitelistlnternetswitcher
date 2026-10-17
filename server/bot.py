@@ -32,6 +32,8 @@ SESS_FILE = "/opt/sub-bot/sessions.json"
 SESS_DAYS = 30
 WEBTOK = {}       # Telegram login token -> {"uid": None | str, "exp": ts}
 EMAIL_CODES = {}  # email -> {"hash": str, "exp": ts, "tries": int, "sent": ts}
+ADMIN_LIMIT = int(os.environ.get("ADMIN_LIMIT", "10"))      # subscriptions for admins added by the owner
+ADMIN_MAX_DAYS = int(os.environ.get("ADMIN_MAX_DAYS", "90"))  # longest term they can give
 SUB_DAYS = int(os.environ.get("SUB_DAYS", "30"))
 PROTECTED = {x.strip().lower() for x in os.environ.get(
     "PROTECTED_EMAILS", "phone,PCClaudeCode,RouterRR,Pixel8my,Pyxel,RR,Telenokpetr,AiClaude").split(",") if x.strip()}
@@ -372,8 +374,9 @@ def sync_username(uid, username):
 
 def api(user, req):
     uid = str(user["id"])
-    admin = uid in ADMINS
+    owner = uid in ADMINS
     users = load_users()
+    admin = owner or users.get(uid, {}).get("role") == "admin"
     allowed = admin or uid in users
     act = req.get("action")
     if allowed and user.get("username") and act == "me":
@@ -382,7 +385,8 @@ def api(user, req):
         except Exception as e:
             print("sync_username error:", type(e).__name__, str(e)[:80], flush=True)
     if act == "me":
-        info = {"id": uid, "name": user.get("first_name", ""), "admin": admin, "allowed": allowed,
+        info = {"id": uid, "name": user.get("first_name", ""), "admin": admin, "owner": owner, "allowed": allowed,
+                "max_days": None if owner else (ADMIN_MAX_DAYS if admin else SUB_DAYS),
                 "support": SUPPORT, "down": [n for n, s in STATUS.items() if not s["up"]]}
         info["ton"] = TON_ADDRESS
         info["login_email"] = users.get(uid, {}).get("login_email")
@@ -392,14 +396,14 @@ def api(user, req):
         if allowed:
             found = [find_client(e) for e in user_emails(users.get(uid, {}))]
             info["clients"] = [client_info(c) for c in found if c]
-            info["limit"] = None if admin else SUBS_LIMIT
+            info["limit"] = None if owner else (ADMIN_LIMIT if admin else SUBS_LIMIT)
             info["proxy_limit"] = None if admin else PROXY_LIMIT
         return info
     if not allowed:
         return {"error": "Нет доступа. Передайте администратору ваш ID: " + uid}
     if act == "renew":
         email = str(req.get("email", ""))
-        if not admin and email not in user_emails(users.get(uid, {})):
+        if not owner and email not in user_emails(users.get(uid, {})):
             return {"error": "Это не ваша подписка"}
         c = find_client(email)
         if not c:
@@ -407,10 +411,13 @@ def api(user, req):
         exp = c.get("expiryTime", 0)
         if not exp:
             return {"error": "У этой подписки нет срока: продлевать не нужно"}
-        if exp / 1000 - time.time() > 10 * 86400 and not admin:
+        if exp / 1000 - time.time() > 10 * 86400 and not owner:
             return {"error": "Продлить можно за 10 дней до окончания"}
         base = max(exp, time.time() * 1000)
-        panel_update(email, expiryTime=int(base + SUB_DAYS * 86400 * 1000))
+        new_exp = base + SUB_DAYS * 86400 * 1000
+        if admin and not owner:
+            new_exp = min(new_exp, (time.time() + ADMIN_MAX_DAYS * 86400) * 1000)
+        panel_update(email, expiryTime=int(new_exp))
         return {"ok": True}
     if act == "email_set":
         em = str(req.get("email", "")).strip().lower()
@@ -462,8 +469,9 @@ def api(user, req):
             users = load_users()
             entry = users.get(uid, {})
             emails = user_emails(entry)
-            if not admin and len(emails) >= SUBS_LIMIT:
-                return {"error": f"Достигнут лимит: {SUBS_LIMIT} подписок"}
+            lim = ADMIN_LIMIT if admin else SUBS_LIMIT
+            if not owner and len(emails) >= lim:
+                return {"error": f"Достигнут лимит: {lim} подписок"}
             if user.get("username"):
                 entry["username"] = user["username"]
             email = unique_name(client_base_name(uid, entry.get("username")), emails)
@@ -492,6 +500,22 @@ def api(user, req):
         return {"error": "Только для администратора"}
     if act == "list_users":
         return {"users": [dict(id=k, **v) for k, v in users.items()]}
+    if act == "set_role":
+        if not owner:
+            return {"error": "Назначать админов может только владелец"}
+        tid = str(req.get("id", "")).strip()
+        if not tid.isdigit() or tid in ADMINS:
+            return {"error": "Нельзя изменить этого пользователя"}
+        with LOCK:
+            users = load_users()
+            if tid not in users:
+                return {"error": "Сначала добавьте пользователя в «Доступ»"}
+            if req.get("role") == "admin":
+                users[tid]["role"] = "admin"
+            else:
+                users[tid].pop("role", None)
+            save_users(users)
+        return {"ok": True}
     if act == "add_user":
         tid = str(req.get("id", "")).strip()
         if not tid.isdigit():
@@ -508,6 +532,8 @@ def api(user, req):
     if act == "remove_user":
         with LOCK:
             users = load_users()
+            if users.get(str(req.get("id")), {}).get("role") == "admin" and not owner:
+                return {"error": "Админа может убрать только владелец"}
             users.pop(str(req.get("id")), None)
             save_users(users)
         return {"ok": True}
@@ -518,7 +544,23 @@ def api(user, req):
         if not name or len(name) > 40:
             return {"error": "Укажите имя (до 40 символов)"}
         dv = req.get("days")
-        c = create_client(name, float(req.get("gb") or 0), SUB_DAYS if dv in (None, "") else int(dv), "created by admin")
+        days = SUB_DAYS if dv in (None, "") else int(dv)
+        if owner:
+            c = create_client(name, float(req.get("gb") or 0), days, "created by admin")
+            return {"client": client_info(c)}
+        if not 1 <= days <= ADMIN_MAX_DAYS:
+            return {"error": f"Срок от 1 до {ADMIN_MAX_DAYS} дней"}
+        with LOCK:
+            users = load_users()
+            entry = users.get(uid, {})
+            emails = user_emails(entry)
+            if len(emails) >= ADMIN_LIMIT:
+                return {"error": f"Достигнут лимит: {ADMIN_LIMIT} подписок"}
+            c = create_client(name, float(req.get("gb") or 0), days, "created by admin " + uid)
+            entry["emails"] = emails + [c["email"]]
+            entry.pop("email", None)
+            users[uid] = entry
+            save_users(users)
         return {"client": client_info(c)}
     if act in ("disable_client", "enable_client"):
         r = panel("/clients/" + ("bulkDisable" if act == "disable_client" else "bulkEnable"),

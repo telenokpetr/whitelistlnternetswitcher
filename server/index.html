@@ -391,7 +391,7 @@ async function pane() {
     p.innerHTML = `<h2>Новая подписка</h2><div class="card">
       <input id="nm" placeholder="Имя (латиницей, напр. ivan)">
       <input id="gb" type="number" placeholder="Лимит ГБ (пусто = без лимита)">
-      <input id="dy" type="number" placeholder="Срок, дней (пусто = 30, 0 = без срока)">
+      <input id="dy" type="number" placeholder="${me.owner ? 'Срок, дней (пусто = 30, 0 = без срока)' : 'Срок, дней (пусто = 30, максимум ' + me.max_days + ')'}">
       <button id="mk">Создать</button><div id="msg"></div></div><h2>Все клиенты</h2><div id="list" class="muted">Загрузка…</div>`;
     document.getElementById('mk').onclick = async () => {
       const r = await call('create_client', {name: nm.value.trim(), gb: gb.value, days: dy.value});
@@ -428,10 +428,15 @@ async function toggle(email, on) {
 async function loadUsers() {
   const r = await call('list_users'); const el = document.getElementById('ul'); if (!el) return;
   el.className = '';
-  el.innerHTML = (r.users||[]).map(u => `<div class="card"><b>${esc(u.id)}</b> ${esc((u.profile && u.profile.name) || u.note || '')} <span class="pill">${esc((u.profile && u.profile.os) || '—')}</span>
+  el.innerHTML = (r.users||[]).map(u => `<div class="card"><b>${esc(u.id)}</b> ${esc((u.profile && u.profile.name) || u.note || '')} <span class="pill">${esc((u.profile && u.profile.os) || '—')}</span>${u.role === 'admin' ? ' <span class="badge">админ</span>' : ''}
     <div class="row"><span>Подписка</span><span>${esc(u.email||'ещё не создана')}</span></div>
-    <button class="sec small" style="margin-top:8px" onclick="rm('${esc(u.id)}')">Убрать доступ</button></div>`).join('')
+    <button class="sec small" style="margin-top:8px" onclick="rm('${esc(u.id)}')">Убрать доступ</button>
+    ${me.owner ? `<button class="sec small" style="margin:8px 0 0 6px" onclick="setRole('${esc(u.id)}','${u.role === 'admin' ? '' : 'admin'}')">${u.role === 'admin' ? 'Снять админа' : 'Сделать админом'}</button>` : ''}</div>`).join('')
     || '<div class="muted">Список пуст</div>';
+}
+async function setRole(id, role) {
+  const r = await call('set_role', {id, role});
+  if (r.error) alert(r.error); else loadUsers();
 }
 async function rm(id) { await call('remove_user', {id}); loadUsers(); }
 render();

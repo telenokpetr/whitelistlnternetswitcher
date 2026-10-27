@@ -155,8 +155,8 @@ priority_get)
   ;;
 
 priority_set)
-  names=$(printf '%s' "$BODY" | jq -ce '.names | select(type=="array" and length==3 and all(.[];type=="string"))' 2>/dev/null) || { err "Выберите три подключения"; exit 0; }
-  [ "$(printf '%s' "$names" | jq 'unique|length')" -eq 3 ] || { err "Подключения должны отличаться"; exit 0; }
+  names=$(printf '%s' "$BODY" | jq -ce '.names | select(type=="array" and length>=1 and length<=3 and all(.[];type=="string" and length>0))' 2>/dev/null) || { err "Выберите от одного до трёх подключений"; exit 0; }
+  [ "$(printf '%s' "$names" | jq 'unique|length')" -eq "$(printf '%s' "$names" | jq 'length')" ] || { err "Подключения должны отличаться"; exit 0; }
   profiles_file=/etc/xray-vk.candidates; [ -s "$profiles_file" ] || profiles_file=/etc/xray-vk.ports
   ports=$(cat "$profiles_file" 2>/dev/null | jq -Rn '[inputs|split("|")|.[1]]')
   valid=$(jq -en --argjson n "$names" --argjson p "$ports" '$n|all(.[]; . as $v | any($p[]; .==$v))' 2>/dev/null) || { err "Одно из подключений отсутствует в подписке"; exit 0; }

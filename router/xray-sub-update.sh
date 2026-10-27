@@ -118,24 +118,21 @@ done
 cp "$NAMES" /etc/xray-vk.candidates && chmod 600 /etc/xray-vk.candidates || fail "cannot save available profiles"
 PRIORITY_FILE="${PRIORITY_FILE:-/etc/xray-vk.priority.json}"
 if [ -s "$PRIORITY_FILE" ]; then
-  PRIORITY_NAMES=$(jq -ce 'select(type=="array" and length==3 and all(.[]; type=="string"))' "$PRIORITY_FILE" 2>/dev/null) || fail "priority settings invalid; old config kept"
+  PRIORITY_NAMES=$(jq -ce 'select(type=="array" and length>=1 and length<=3 and all(.[]; type=="string"))' "$PRIORITY_FILE" 2>/dev/null) || fail "priority settings invalid; old config kept"
 else
-  if [ "$(printf '%s' "$NL_TAGS" | jq 'length')" -eq 0 ] || [ "$(printf '%s' "$SE_TAGS" | jq 'length')" -eq 0 ] || [ "$(printf '%s' "$FI_TAGS" | jq 'length')" -eq 0 ]; then
-    log "ВЫБЕРИТЕ: укажите в панели три доступных профиля; прежняя конфигурация сохранена"
-    rm -f "$TMP" "$NAMES"
-    exit 2
-  fi
-  PRIORITY_NAMES=$(jq -cn --argjson p "$PROFILES" --argjson nl "$NL_TAGS" --argjson se "$SE_TAGS" --argjson fi "$FI_TAGS" '[($p[]|select(.tag==$nl[0])|.name),($p[]|select(.tag==$se[0])|.name),($p[]|select(.tag==$fi[0])|.name)]')
+  PRIORITY_NAMES=$(jq -cn --argjson p "$PROFILES" --argjson nl "$NL_TAGS" --argjson se "$SE_TAGS" --argjson fi "$FI_TAGS" '
+    if ($nl|length)>0 and ($se|length)>0 and ($fi|length)>0 then
+      [($p[]|select(.tag==$nl[0])|.name),($p[]|select(.tag==$se[0])|.name),($p[]|select(.tag==$fi[0])|.name)]
+    else reduce $p[].name as $n ([]; if index($n) then . else . + [$n] end) | .[:3] end')
 fi
-PRIORITY_TAGS=$(jq -cn --argjson p "$PROFILES" --argjson names "$PRIORITY_NAMES" '[$names[] as $n | [$p[]|select(.name==$n)|.tag] | if length==1 then .[0] else empty end]')
-if [ "$(printf '%s' "$PRIORITY_TAGS" | jq 'length')" -ne 3 ]; then
-  log "ВЫБЕРИТЕ: прежние профили отсутствуют или неоднозначны; выберите три доступных профиля"
-  rm -f "$TMP" "$NAMES"
-  exit 2
-fi
+PRIORITY_TAGS=$(jq -cn --argjson p "$PROFILES" --argjson names "$PRIORITY_NAMES" '
+  ([$names[] as $n | [$p[]|select(.name==$n)|.tag] | if length==1 then .[0] else empty end] + [$p[].tag])
+  | reduce .[] as $tag ([]; if index($tag) then . else . + [$tag] end) | .[:3]')
+[ "$(printf '%s' "$PRIORITY_TAGS" | jq 'length')" -gt 0 ] || fail "no available profiles; old config kept"
 P1=$(printf '%s' "$PRIORITY_TAGS" | jq -r '.[0]')
-P2=$(printf '%s' "$PRIORITY_TAGS" | jq -r '.[1]')
-P3=$(printf '%s' "$PRIORITY_TAGS" | jq -r '.[2]')
+P2=$(printf '%s' "$PRIORITY_TAGS" | jq -r '.[1] // .[0]')
+P3=$(printf '%s' "$PRIORITY_TAGS" | jq -r '.[2] // .[1] // .[0]')
+log "Доступно профилей: $i; сохранённый порядок используется для доступных узлов"
 
 jq -n --argjson outs "$outs" --arg p1 "$P1" --arg p2 "$P2" --arg p3 "$P3" --argjson sp "$SOCKS_PORT" --arg lan "$LAN_IP" --argjson base "$TG_BASE" --argjson tp "$TPROXY_PORT" '
   ($outs | map(.tag)) as $tags |

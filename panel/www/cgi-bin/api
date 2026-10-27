@@ -159,7 +159,7 @@ priority_set)
   [ "$(printf '%s' "$names" | jq 'unique|length')" -eq 3 ] || { err "Подключения должны отличаться"; exit 0; }
   profiles_file=/etc/xray-vk.candidates; [ -s "$profiles_file" ] || profiles_file=/etc/xray-vk.ports
   ports=$(cat "$profiles_file" 2>/dev/null | jq -Rn '[inputs|split("|")|.[1]]')
-  valid=$(jq -en --argjson n "$names" --argjson p "$ports" '$n|all(.[] as $v; any($p[]; .==$v))' 2>/dev/null) || { err "Одно из подключений отсутствует в подписке"; exit 0; }
+  valid=$(jq -en --argjson n "$names" --argjson p "$ports" '$n|all(.[]; . as $v | any($p[]; .==$v))' 2>/dev/null) || { err "Одно из подключений отсутствует в подписке"; exit 0; }
   printf '%s\n' "$names" > /etc/xray-vk.priority.pending.json
   chmod 600 /etc/xray-vk.priority.pending.json
   : > "$R/sub.log"

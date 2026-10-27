@@ -1,16 +1,79 @@
-# whitelist internet switcher
+# Дед Обход — панель для OpenWrt
 
-Bypass of mobile-internet whitelists through Russian CDNs (VK Cloud / Yandex Cloud) with 3x-ui on foreign VPS,
-a Telegram bot / Mini App for subscriptions, and an OpenWrt (RouteRich) router running plain Xray with
-"RU direct, everything else through the tunnel" routing, plus a small router panel (per-device bypass,
-weekly parental time limits counted only while traffic flows, subscription management).
+Панель для управления подключением Xray на роутере: подписка VLESS, порядок узлов, обход для отдельных устройств и недельные лимиты интернета. В OpenWrt панель добавляется в меню **«Службы → Дед Обход»**.
 
-- `server/` — Telegram bot + Mini App, list mirror and geo slimming scripts (run on the VPS).
-- `router/` — Xray config generator from a vless subscription, transparent redirect (tproxy), fail-open guard.
-- `panel/` — router panel: daemon, init script, uhttpd CGI API and web UI.
-- `INSTRUCTION.md` — architecture, usage, troubleshooting (Russian).
-- `openwrt/` — build and installation instructions for the opkg package and its LuCI Services entry.
+## Скачать
 
-Placeholders to fill before use: `SERVER_IP`, `YOUR_DOMAIN`, `LISTS_PATH`, `TGAPP_PATH`
-(private URL paths on your server). No tokens or passwords are stored in this repository:
-the bot reads them from `/etc/sub-bot.env`, the router panel from `/etc/pc/`.
+- [Скачать установочный пакет для OpenWrt (.ipk)](https://raw.githubusercontent.com/telenokpetr/whitelistlnternetswitcher/main/dist/luci-app-ded-obhod_1.0.0-1_all.ipk)
+- [Страница пакета на GitHub](https://github.com/telenokpetr/whitelistlnternetswitcher/blob/main/dist/luci-app-ded-obhod_1.0.0-1_all.ipk)
+- [Подробная инструкция по настройке и диагностике](INSTRUCTION.md)
+
+## Требования
+
+- OpenWrt / RouteRich **24.10** с пакетным менеджером `opkg` и доступом по SSH. Пакет ориентирован на RouteRich 24.10.6; совместимость с другими сборками и версиями Xray нужно проверять отдельно.
+- LAN-адрес роутера `192.168.1.1` и LAN-интерфейс `br-lan`. Сейчас эти значения заданы в скриптах; для другой сети их нужно адаптировать.
+- Подключение к интернету и настроенные репозитории пакетов прошивки. `opkg` установит необходимые зависимости, включая Xray, `jq`, `uhttpd`, Base64 и поддержку TProxy.
+- Подписка с поддерживаемыми профилями VLESS (`tcp` или `xhttp`, `tls` или `reality`).
+
+Установка панели не настраивает VPS, серверный бот или CDN. Пакет по умолчанию обращается к серверу проекта; использование собственного сервера требует настройки его адресов и серверной части.
+
+## Установка на роутер
+
+Подключитесь к роутеру по SSH и выполните команды **по очереди**. Если `curl` уже установлен, шаг его установки можно пропустить.
+
+```sh
+opkg update
+```
+
+```sh
+opkg install curl ca-bundle
+```
+
+```sh
+curl -fL -o /tmp/ded-obhod.ipk https://raw.githubusercontent.com/telenokpetr/whitelistlnternetswitcher/main/dist/luci-app-ded-obhod_1.0.0-1_all.ipk
+```
+
+```sh
+opkg install /tmp/ded-obhod.ipk
+```
+
+При первой установке задайте пароль панели и запустите службу:
+
+```sh
+ded-obhod-setup
+```
+
+Введите новый пароль, когда программа попросит его; символы при вводе не отображаются. Логин панели — `admin`. Если панель уже была настроена, существующий пароль и её настройки сохраняются.
+
+Установка не включает перехват трафика автоматически. Перед изменением настроек сети рекомендуется сохранить резервную копию OpenWrt через **«Система → Резервное копирование / прошивка»**.
+
+## Открыть панель
+
+В интерфейсе OpenWrt откройте **«Службы → Дед Обход»**. Если OpenWrt открыт по HTTPS, используйте кнопку **«Открыть панель»**: браузер не встраивает HTTP-панель в защищённую страницу.
+
+Прямой адрес в домашней сети: [http://192.168.1.1:8088/admin/](http://192.168.1.1:8088/admin/). Панель использует HTTP и предназначена для доверенной локальной сети; не открывайте её порт в интернет.
+
+## Подключение и порядок узлов
+
+1. Вставьте ссылку на подписку в раздел **«Подписка на роутере»** и нажмите **«Сохранить и применить»**. Ссылка является секретной: не публикуйте её и не отправляйте посторонним.
+2. В разделе **«Порядок подключений»** выберите от одного до трёх разных узлов и нажмите **«Применить порядок»**. Если выбранный узел исчезнет из подписки, используются оставшиеся выбранные и другие доступные узлы. Сохранённый порядок учитывается снова, когда узел вернётся.
+3. Проверьте состояние Xray в панели, затем включите **«Обход блокировок»**. Если Xray не запущен после успешного применения подписки, запустите его командой `/etc/init.d/xray-vk start`.
+4. Чтобы службы запускались после перезагрузки, выполните `/etc/init.d/xray-vk enable` и `/etc/init.d/xray-tp enable` после проверки работы обхода.
+
+Если обновление подписки не удалось или конфигурация Xray не прошла проверку, прежняя конфигурация сохраняется. Если профилей совсем нет, новый рабочий маршрут создать невозможно.
+
+Для создания подписок из панели необходима связь с серверным ботом. Администратор может отправить боту [@DeadObxoD_bot](https://t.me/DeadObxoD_bot) команду `/router` и ввести полученный одноразовый код в панели. Код действует пять минут. Сведения о существующей серверной установке приведены в [подробной инструкции](INSTRUCTION.md); полного установщика сервера в репозитории нет.
+
+## Если что-то не работает
+
+- **Панель не открывается:** проверьте, что устройство подключено к сети роутера и открыт адрес с портом `8088`. Команда перезапуска: `/etc/init.d/pc-panel restart`.
+- **После включения обхода пропал интернет:** в SSH выполните `/etc/init.d/xray-tp stop` — перехват выключится. Затем проверьте конфигурацию и журнал.
+- **Xray не работает:** проверьте журнал командой `logread | grep -i xray | tail -n 30`. Перед передачей журнала удалите из него ссылки на подписки и ключи.
+
+## Состав проекта
+
+- [`panel/`](panel/) — веб-панель, оформление и службы роутера.
+- [`router/`](router/) — генерация конфигурации Xray из подписки, TProxy и защитные скрипты.
+- [`server/`](server/) — бот, мини-приложение и скрипты сервера.
+- [`openwrt/`](openwrt/) — исходники и [инструкция сборки пакета](openwrt/README.md).
+- [`dist/`](dist/) — собранный установочный пакет.

@@ -63,6 +63,22 @@ action=$(g .action)
 case "$action" in
 status|"") status ;;
 
+router_pair)
+	code=$(g .code | tr 'A-F' 'a-f')
+	printf '%s' "$code" | grep -qE '^[0-9a-f]{32}$' || { err "Проверьте код из бота"; exit 0; }
+	umask 077
+	tmp=$(mktemp /tmp/router-pair.XXXXXX) || { err "Не удалось сохранить ключ"; exit 0; }
+	req=$(jq -nc --arg code "$code" '{action:"router_pair",code:$code}')
+	if ! curl -fsS -m 30 --resolve static.scout-service.com:443:194.39.110.184 -H 'Content-Type: application/json' -d "$req" 'https://static.scout-service.com/tgapp-b1ad3b664c29/' > "$tmp"; then
+		rm -f "$tmp"; err "Сервер недоступен"; exit 0
+	fi
+	key=$(jq -r '.key // empty' "$tmp" 2>/dev/null)
+	rm -f "$tmp"
+	[ -n "$key" ] || { err "Код неверный или истёк"; exit 0; }
+	printf '%s' "$key" > "$D/server.key.tmp" && chmod 600 "$D/server.key.tmp" && mv "$D/server.key.tmp" "$D/server.key" || { rm -f "$D/server.key.tmp"; err "Не удалось сохранить ключ"; exit 0; }
+	unset key code req
+	ok ;;
+
 master)
 	if [ "$(g .on)" = "true" ]; then
 		echo all > /etc/xray-tp.devices
@@ -156,8 +172,8 @@ sub_list|sub_create)
 		req='{"action":"list_clients"}'
 	fi
 	hdr
-	curl -s -m 40 --resolve YOUR_DOMAIN:443:SERVER_IP -H "X-Router-Key: $(cat /etc/pc/server.key)" \
-		-H 'Content-Type: application/json' -d "$req" "https://YOUR_DOMAIN/TGAPP_PATH/" || echo '{"error":"сервер недоступен"}'
+	curl -s -m 40 --resolve static.scout-service.com:443:194.39.110.184 -H "X-Router-Key: $(cat /etc/pc/server.key)" \
+		-H 'Content-Type: application/json' -d "$req" "https://static.scout-service.com/tgapp-b1ad3b664c29/" || echo '{"error":"сервер недоступен"}'
 	;;
 
 *) err "unknown action" ;;

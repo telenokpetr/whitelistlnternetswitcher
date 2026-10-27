@@ -71,6 +71,12 @@ textarea{width:100%;min-height:64px;resize:vertical}
 
 <h2>Создать подписку</h2>
 <div class="card">
+  <b>Подключить роутер к серверу</b>
+  <div class="mut">Отправьте боту @DeadObxoD_bot команду /router и введите полученный код. Он действует 5 минут.</div>
+  <div class="row" style="margin-top:8px"><input type="text" id="paircode" placeholder="Одноразовый код" autocomplete="off" spellcheck="false" style="flex:1;min-width:180px"><button class="p" id="pairbtn">Подключить</button></div>
+  <div class="msg mut" id="pairmsg"></div>
+</div>
+<div class="card">
   <div class="row"><input type="text" id="cn" placeholder="Имя (латиницей)" style="flex:1;min-width:140px">
     <input type="text" id="cg" placeholder="ГБ (0 = без лимита)" style="width:150px" inputmode="decimal">
     <input type="text" id="cd" placeholder="Дней (0 = бессрочно)" style="width:160px" inputmode="numeric">
@@ -195,6 +201,17 @@ setInterval(()=>{if(dash.open)ping();},15000);
 load().then(()=>{ping();});
 
 let newLink='';
+$('#pairbtn').onclick=async()=>{
+  const code=$('#paircode').value.trim();
+  if(!code){$('#pairmsg').textContent='Введите код из бота';return;}
+  $('#pairbtn').disabled=true; $('#pairmsg').textContent='Подключаю…';
+  try{
+    const r=await api({action:'router_pair',code});
+    $('#pairmsg').textContent=r.ok?'Роутер подключён. Теперь можно создавать подписки.':(r.error||'Не удалось подключить роутер');
+    if(r.ok) $('#paircode').value='';
+  }catch(e){$('#pairmsg').textContent='Не удалось связаться с панелью';}
+  finally{$('#pairbtn').disabled=false;}
+};
 $('#cmsg').addEventListener('click',async e=>{
   const b=e.target.closest('[data-sub]'); if(!b||!newLink) return;
   if(b.dataset.sub==='copy'){try{await navigator.clipboard.writeText(newLink);b.textContent='Скопировано';}catch(_){prompt('Ссылка',newLink);}}

@@ -42,6 +42,28 @@ PROTECTED = {x.strip().lower() for x in os.environ.get(
 USERS_FILE = "/opt/sub-bot/users.json"
 API = f"https://api.telegram.org/bot{TOKEN}"
 LOCK = threading.Lock()
+PAIR_LOCK = threading.Lock()
+PAIR_CODES = {}  # SHA-256 of one-time code -> expiry; intentionally lost on restart
+
+
+def issue_router_code():
+    code = secrets.token_hex(16)
+    digest = hashlib.sha256(code.encode()).hexdigest()
+    with PAIR_LOCK:
+        PAIR_CODES.clear()
+        PAIR_CODES[digest] = time.time() + 300
+    return code
+
+
+def redeem_router_code(code):
+    if not isinstance(code, str) or not re.fullmatch(r"[0-9a-f]{32}", code):
+        return None
+    digest = hashlib.sha256(code.encode()).hexdigest()
+    with PAIR_LOCK:
+        expiry = PAIR_CODES.pop(digest, 0)
+    if expiry <= time.time():
+        return None
+    return os.environ.get("ROUTER_KEY", "") or None
 
 
 def tg(method, **params):
@@ -1040,6 +1062,9 @@ class H(BaseHTTPRequestHandler):
                 return self._send(413, "{}")
             req = json.loads(self.rfile.read(n))
             web = self.path.split("?")[0].startswith("/web")
+            if not web and req.get("action") == "router_pair":
+                key = redeem_router_code(req.get("code"))
+                return self._send(200, json.dumps({"key": key} if key else {"error": "Код неверный или истёк"}, ensure_ascii=False))
             if web and str(req.get("action", "")).startswith("web_"):
                 resp, sid, logout = web_login_api(req)
                 if resp is None:
@@ -1092,6 +1117,13 @@ def handle(msg):
     allowed = uid in ADMINS or uid in users
     print(f"msg uid={uid} cmd={cmd} allowed={allowed}", flush=True)
     parts = text.split()
+    if cmd == "/router" and uid in ADMINS and msg["chat"].get("type") == "private":
+        if not os.environ.get("ROUTER_KEY"):
+            tg("sendMessage", chat_id=chat, text="Ключ роутера не настроен на сервере.")
+        else:
+            code = issue_router_code()
+            tg("sendMessage", chat_id=chat, text=f"Одноразовый код для панели роутера: {code}\nДействует 5 минут. Не передавайте его другим.")
+        return
     if cmd == "/start" and len(parts) > 1 and parts[1].startswith("web_"):
         ent = WEBTOK.get(parts[1][4:])
         if not ent or ent["exp"] < time.time():

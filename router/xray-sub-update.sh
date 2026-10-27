@@ -115,17 +115,24 @@ done
 
 [ "$i" -gt 0 ] || fail "no usable vless profiles found in the subscription"
 
-[ "$(printf '%s' "$NL_TAGS" | jq 'length')" -gt 0 ] || fail "subscription has no Netherlands profiles; old config kept"
-[ "$(printf '%s' "$SE_TAGS" | jq 'length')" -gt 0 ] || fail "subscription has no Sweden profiles; old config kept"
-[ "$(printf '%s' "$FI_TAGS" | jq 'length')" -gt 0 ] || fail "subscription has no Helsinki/Finland profiles; old config kept"
-PRIORITY_FILE=/etc/xray-vk.priority.json
+cp "$NAMES" /etc/xray-vk.candidates && chmod 600 /etc/xray-vk.candidates || fail "cannot save available profiles"
+PRIORITY_FILE="${PRIORITY_FILE:-/etc/xray-vk.priority.json}"
 if [ -s "$PRIORITY_FILE" ]; then
   PRIORITY_NAMES=$(jq -ce 'select(type=="array" and length==3 and all(.[]; type=="string"))' "$PRIORITY_FILE" 2>/dev/null) || fail "priority settings invalid; old config kept"
 else
+  if [ "$(printf '%s' "$NL_TAGS" | jq 'length')" -eq 0 ] || [ "$(printf '%s' "$SE_TAGS" | jq 'length')" -eq 0 ] || [ "$(printf '%s' "$FI_TAGS" | jq 'length')" -eq 0 ]; then
+    log "ВЫБЕРИТЕ: укажите в панели три доступных профиля; прежняя конфигурация сохранена"
+    rm -f "$TMP" "$NAMES"
+    exit 2
+  fi
   PRIORITY_NAMES=$(jq -cn --argjson p "$PROFILES" --argjson nl "$NL_TAGS" --argjson se "$SE_TAGS" --argjson fi "$FI_TAGS" '[($p[]|select(.tag==$nl[0])|.name),($p[]|select(.tag==$se[0])|.name),($p[]|select(.tag==$fi[0])|.name)]')
 fi
 PRIORITY_TAGS=$(jq -cn --argjson p "$PROFILES" --argjson names "$PRIORITY_NAMES" '[$names[] as $n | [$p[]|select(.name==$n)|.tag] | if length==1 then .[0] else empty end]')
-[ "$(printf '%s' "$PRIORITY_TAGS" | jq 'length')" -eq 3 ] || fail "selected profiles missing or duplicated; old config kept"
+if [ "$(printf '%s' "$PRIORITY_TAGS" | jq 'length')" -ne 3 ]; then
+  log "ВЫБЕРИТЕ: прежние профили отсутствуют или неоднозначны; выберите три доступных профиля"
+  rm -f "$TMP" "$NAMES"
+  exit 2
+fi
 P1=$(printf '%s' "$PRIORITY_TAGS" | jq -r '.[0]')
 P2=$(printf '%s' "$PRIORITY_TAGS" | jq -r '.[1]')
 P3=$(printf '%s' "$PRIORITY_TAGS" | jq -r '.[2]')
@@ -171,7 +178,8 @@ jq -n --argjson outs "$outs" --arg p1 "$P1" --arg p2 "$P2" --arg p3 "$P3" --argj
 
 "$XRAY" run -test -c "$TMP" >/tmp/xray-sub.test 2>&1 || { log "$(tail -3 /tmp/xray-sub.test | tr '\n' ' ')"; fail "new config did not pass xray -test, old config kept"; }
 
-printf '%s\n' "$PRIORITY_NAMES" > "$PRIORITY_FILE"
+printf '%s\n' "$PRIORITY_NAMES" > /etc/xray-vk.priority.json
+chmod 600 /etc/xray-vk.priority.json
 # The subscription randomises shortId/spiderX on every request, so compare a signature
 # that ignores them; otherwise Xray would be restarted for nothing on each run.
 SIG_NEW=$(jq -S 'del(.. | .shortId?, .spiderX?)' "$TMP" | md5sum | cut -d' ' -f1)

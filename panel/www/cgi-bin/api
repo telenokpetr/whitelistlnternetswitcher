@@ -101,13 +101,13 @@ set_sub)
 	cp /etc/xray-sub.url /etc/xray-sub.url.bak 2>/dev/null
 	printf '%s\n' "$u" > /etc/xray-sub.url
 	: > "$R/sub.log"
-	( sh -c 'if /usr/bin/xray-sub-update.sh >> /tmp/pc/sub.log 2>&1; then echo "OK: подписка применена" >> /tmp/pc/sub.log; else cp /etc/xray-sub.url.bak /etc/xray-sub.url; echo "ОШИБКА: возвращена прежняя подписка" >> /tmp/pc/sub.log; fi' >/dev/null 2>&1 </dev/null & )
+	( sh -c '/usr/bin/xray-sub-update.sh >> /tmp/pc/sub.log 2>&1; rc=$?; if [ "$rc" -eq 0 ]; then echo "OK: подписка применена" >> /tmp/pc/sub.log; elif [ "$rc" -eq 2 ]; then echo "ВЫБЕРИТЕ: выберите три профиля ниже" >> /tmp/pc/sub.log; else cp /etc/xray-sub.url.bak /etc/xray-sub.url; echo "ОШИБКА: возвращена прежняя подписка" >> /tmp/pc/sub.log; fi' >/dev/null 2>&1 </dev/null & )
 	ok ;;
 
 sub_update)
 	[ -s /etc/xray-sub.url ] || { err "Ссылка подписки не задана"; exit 0; }
 	: > "$R/sub.log"
-	( sh -c 'if /usr/bin/xray-sub-update.sh >> /tmp/pc/sub.log 2>&1; then echo "OK: подписка обновлена" >> /tmp/pc/sub.log; else echo "ОШИБКА: подписка не обновлена" >> /tmp/pc/sub.log; fi' >/dev/null 2>&1 </dev/null & )
+	( sh -c '/usr/bin/xray-sub-update.sh >> /tmp/pc/sub.log 2>&1; rc=$?; if [ "$rc" -eq 0 ]; then echo "OK: подписка обновлена" >> /tmp/pc/sub.log; elif [ "$rc" -eq 2 ]; then echo "ВЫБЕРИТЕ: выберите три профиля ниже" >> /tmp/pc/sub.log; else echo "ОШИБКА: подписка не обновлена" >> /tmp/pc/sub.log; fi' >/dev/null 2>&1 </dev/null & )
 	ok ;;
 
 wifi)
@@ -148,7 +148,8 @@ name_set)
 
 priority_get)
   hdr
-  ports=$(cat /etc/xray-vk.ports 2>/dev/null | jq -Rn '[inputs|split("|")|{tag:("p"+((.[0]|tonumber)-10810|tostring)),name:.[1]}]')
+  profiles_file=/etc/xray-vk.candidates; [ -s "$profiles_file" ] || profiles_file=/etc/xray-vk.ports
+  ports=$(cat "$profiles_file" 2>/dev/null | jq -Rn '[inputs|split("|")|{tag:("p"+((.[0]|tonumber)-10810|tostring)),name:.[1]}]')
   selected=$(cat /etc/xray-vk.priority.json 2>/dev/null || echo '[]')
   jq -n --argjson profiles "$ports" --argjson selected "$selected" '{profiles:$profiles,selected:$selected}'
   ;;
@@ -156,12 +157,13 @@ priority_get)
 priority_set)
   names=$(printf '%s' "$BODY" | jq -ce '.names | select(type=="array" and length==3 and all(.[];type=="string"))' 2>/dev/null) || { err "Выберите три подключения"; exit 0; }
   [ "$(printf '%s' "$names" | jq 'unique|length')" -eq 3 ] || { err "Подключения должны отличаться"; exit 0; }
-  ports=$(cat /etc/xray-vk.ports 2>/dev/null | jq -Rn '[inputs|split("|")|.[1]]')
+  profiles_file=/etc/xray-vk.candidates; [ -s "$profiles_file" ] || profiles_file=/etc/xray-vk.ports
+  ports=$(cat "$profiles_file" 2>/dev/null | jq -Rn '[inputs|split("|")|.[1]]')
   valid=$(jq -en --argjson n "$names" --argjson p "$ports" '$n|all(.[] as $v; any($p[]; .==$v))' 2>/dev/null) || { err "Одно из подключений отсутствует в подписке"; exit 0; }
-  printf '%s\n' "$names" > /etc/xray-vk.priority.json
-  chmod 600 /etc/xray-vk.priority.json
+  printf '%s\n' "$names" > /etc/xray-vk.priority.pending.json
+  chmod 600 /etc/xray-vk.priority.pending.json
   : > "$R/sub.log"
-  ( sh -c 'if /usr/bin/xray-sub-update.sh >> /tmp/pc/sub.log 2>&1; then echo "OK: приоритет применён" >> /tmp/pc/sub.log; else echo "ОШИБКА: приоритет не применён" >> /tmp/pc/sub.log; fi' >/dev/null 2>&1 </dev/null & )
+  ( sh -c 'if PRIORITY_FILE=/etc/xray-vk.priority.pending.json /usr/bin/xray-sub-update.sh >> /tmp/pc/sub.log 2>&1; then echo "OK: приоритет применён" >> /tmp/pc/sub.log; else echo "ОШИБКА: приоритет не применён" >> /tmp/pc/sub.log; fi; rm -f /etc/xray-vk.priority.pending.json' >/dev/null 2>&1 </dev/null & )
   ok ;;
 
 ping)

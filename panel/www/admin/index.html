@@ -188,9 +188,15 @@ function watchSubUpdate(button){
   let t=0; const iv=setInterval(async()=>{
     await load(); t++;
     const log=S?.sub?.log||'';
-    if(/^(OK|ОШИБКА)/m.test(log)){
+    if(/^(OK|ОШИБКА|ВЫБЕРИТЕ)/m.test(log)){
       clearInterval(iv); $('#subsave').disabled=false; $('#subupdate').disabled=false;
-      $('#sst').textContent=/^ОШИБКА/m.test(log)?'Не удалось обновить':'Подписка обновлена';
+      if(/^ВЫБЕРИТЕ/m.test(log)){
+        $('#sst').textContent='Выберите три доступных подключения ниже';
+        await loadPriority();
+      }else{
+        $('#sst').textContent=/^ОШИБКА/m.test(log)?'Не удалось обновить':'Подписка обновлена';
+        await loadPriority();
+      }
     }else if(t>20){
       clearInterval(iv); $('#subsave').disabled=false; $('#subupdate').disabled=false;
       $('#sst').textContent='Истекло время ожидания — проверьте журнал';
@@ -237,16 +243,19 @@ async function loadPriority(){
   try{
     const r=await api({action:'priority_get'});
     const vals=[r.selected?.[0],r.selected?.[1],r.selected?.[2]];
+    const names=new Set(r.profiles.map(p=>p.name));
+    if(names.size<3) $('#priorityStatus').textContent='Для выбора нужны минимум три разных профиля';
+    else if(!vals.every(v=>names.has(v))) $('#priorityStatus').textContent='Выберите три разных подключения';
     for(let i=1;i<=3;i++){
       const el=$('#priority'+i);
-      el.innerHTML=r.profiles.map(p=>'<option value="'+esc(p.name)+'">'+esc(p.name)+' · '+p.tag+'</option>').join('');
-      if(vals[i-1]) el.value=vals[i-1];
+      el.innerHTML='<option value="">Выберите подключение</option>'+r.profiles.map(p=>'<option value="'+esc(p.name)+'">'+esc(p.name)+' · '+p.tag+'</option>').join('');
+      if(vals[i-1] && names.has(vals[i-1])) el.value=vals[i-1];
     }
   }catch(e){$('#priorityStatus').textContent='Не удалось загрузить подключения';}
 }
 $('#prioritySave').onclick=async()=>{
   const names=[1,2,3].map(i=>$('#priority'+i).value);
-  if(new Set(names).size!==3){$('#priorityStatus').textContent='Выберите три разных подключения';return;}
+  if(names.some(n=>!n)||new Set(names).size!==3){$('#priorityStatus').textContent='Выберите три разных подключения';return;}
   const r=await api({action:'priority_set',names});
   if(!r.ok){$('#priorityStatus').textContent=r.error;return;}
   $('#prioritySave').disabled=true; $('#priorityStatus').textContent='Применяю порядок…';

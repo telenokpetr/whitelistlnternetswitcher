@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+mkdir -p /etc/pc
+if [ ! -s /etc/pc/httpd.conf ]; then
+  printf 'Введите новый пароль панели (символы не отображаются): '
+  stty -echo
+  trap 'stty echo' EXIT HUP INT TERM
+  IFS= read -r password
+  stty echo
+  trap - EXIT HUP INT TERM
+  printf '\n'
+  [ -n "$password" ] || { echo 'Пароль не может быть пустым.'; exit 1; }
+  hash=$(uhttpd -m "$password")
+  unset password
+  [ -n "$hash" ] || { echo 'Не удалось создать пароль.'; exit 1; }
+  umask 077
+  printf '/admin:admin:%s\n/cgi-bin/api:admin:%s\n' "$hash" "$hash" > /etc/pc/httpd.conf
+  unset hash
+fi
+/etc/init.d/pc-panel enable
+/etc/init.d/pc-panel restart
+echo 'Панель запущена: http://192.168.1.1:8088/admin/ (логин admin).'

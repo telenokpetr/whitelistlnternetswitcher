@@ -1,0 +1,9 @@
+#!/bin/sh
+[ -n "$IPKG_INSTROOT" ] && exit 0
+if [ -s /etc/pc/httpd.conf ]; then
+  /etc/init.d/pc-panel enable
+  /etc/init.d/pc-panel restart
+else
+  echo 'Чтобы задать пароль и запустить панель, выполните: ded-obhod-setup'
+fi
+exit 0

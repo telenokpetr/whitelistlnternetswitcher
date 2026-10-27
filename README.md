@@ -9,6 +9,7 @@ weekly parental time limits counted only while traffic flows, subscription manag
 - `router/` — Xray config generator from a vless subscription, transparent redirect (tproxy), fail-open guard.
 - `panel/` — router panel: daemon, init script, uhttpd CGI API and web UI.
 - `INSTRUCTION.md` — architecture, usage, troubleshooting (Russian).
+- `openwrt/` — build and installation instructions for the opkg package and its LuCI Services entry.
 
 Placeholders to fill before use: `SERVER_IP`, `YOUR_DOMAIN`, `LISTS_PATH`, `TGAPP_PATH`
 (private URL paths on your server). No tokens or passwords are stored in this repository:

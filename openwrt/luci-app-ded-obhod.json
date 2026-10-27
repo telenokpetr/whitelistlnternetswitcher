@@ -1,0 +1,7 @@
+{
+  "admin/services/ded-obhod": {
+    "title": "Дед Обход",
+    "order": 55,
+    "action": { "type": "view", "path": "ded-obhod/overview" }
+  }
+}

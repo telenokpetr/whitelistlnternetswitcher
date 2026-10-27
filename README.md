@@ -4,8 +4,8 @@
 
 ## Скачать
 
-- [Скачать установочный пакет для OpenWrt (.ipk)](https://raw.githubusercontent.com/telenokpetr/whitelistlnternetswitcher/main/dist/luci-app-ded-obhod_1.0.1-1_all.ipk)
-- [Страница пакета на GitHub](https://github.com/telenokpetr/whitelistlnternetswitcher/blob/main/dist/luci-app-ded-obhod_1.0.1-1_all.ipk)
+- [Скачать установочный пакет для OpenWrt (.ipk)](https://raw.githubusercontent.com/telenokpetr/whitelistlnternetswitcher/main/dist/luci-app-ded-obhod_1.0.2-1_all.ipk)
+- [Страница пакета на GitHub](https://github.com/telenokpetr/whitelistlnternetswitcher/blob/main/dist/luci-app-ded-obhod_1.0.2-1_all.ipk)
 - [Подробная инструкция по настройке и диагностике](INSTRUCTION.md)
 
 ## Требования
@@ -30,7 +30,7 @@ opkg install curl ca-bundle
 ```
 
 ```sh
-curl -fL -o /tmp/ded-obhod.ipk https://raw.githubusercontent.com/telenokpetr/whitelistlnternetswitcher/main/dist/luci-app-ded-obhod_1.0.1-1_all.ipk
+curl -fL -o /tmp/ded-obhod.ipk https://raw.githubusercontent.com/telenokpetr/whitelistlnternetswitcher/main/dist/luci-app-ded-obhod_1.0.2-1_all.ipk
 ```
 
 ```sh

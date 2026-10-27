@@ -6,7 +6,11 @@ return view.extend({
     var host = window.location.hostname;
     if (host.indexOf(':') >= 0 && host.charAt(0) !== '[') host = '[' + host + ']';
     var url = 'http://' + host + ':8088/admin/';
-    var content = [];
+    var content = [E('style', {},
+      '@media screen and (min-width: 993px) {' +
+      'body[data-page="admin-services-ded-obhod"] .main-right > header.bg-primary { display: none; }' +
+      'body[data-page="admin-services-ded-obhod"] .main-right #maincontent > .container { padding-top: 0; }' +
+      '}')];
     if (window.location.protocol === 'http:') {
       content.push(E('iframe', { 'src': url, 'title': 'Дед Обход',
         'style': 'display:block;width:100%;height:calc(100vh - 80px);min-height:600px;border:0;border-radius:12px' }));

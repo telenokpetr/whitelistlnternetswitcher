@@ -13,7 +13,7 @@ SOCKS_PORT="${SOCKS_PORT:-10808}"
 LAN_IP="${LAN_IP-192.168.1.1}"   # LAN address for per-profile Telegram SOCKS5 ports; empty = disabled
 TPROXY_PORT="${TPROXY_PORT:-12345}"   # transparent inbound (0 = disabled)
 GEO_DIR="${GEO_DIR:-/usr/share/xray}"
-GEO_URL="${GEO_URL:-http://SERVER_IP:8081/LISTS_PATH/xray}"
+GEO_URL="${GEO_URL:-http://194.39.110.184:8081/lists-62543a2012ef/xray}"
 TG_BASE="${TG_BASE:-10811}"       # first per-profile port: p1 -> 10811, p2 -> 10812, ...
 NAMES="/tmp/xray-ports.$$"
 : > "$NAMES"
@@ -28,7 +28,7 @@ command -v jq >/dev/null || fail "jq is not installed (opkg install jq)"
 SUB_URL=$(head -n1 "$SUB_FILE" | tr -d '\r\n ')
 
 # DNS-independent: pin our own host to its IP (the router DNS may be broken by transparent proxying)
-SUB_RESOLVE="${SUB_RESOLVE:-YOUR_DOMAIN:443:SERVER_IP}"
+SUB_RESOLVE="${SUB_RESOLVE:-static.scout-service.com:443:194.39.110.184}"
 # routing data (small RU-only geoip/geosite built on our server); keep the old copy on failure
 mkdir -p "$GEO_DIR"
 GEO_CHANGED=0
@@ -52,6 +52,10 @@ urldecode() {
 getq() { printf '%s' "$Q" | tr '&' '\n' | sed -n "s/^$1=//p" | head -n1; }
 
 outs="[]"
+NL_TAGS="[]"
+SE_TAGS="[]"
+FI_TAGS="[]"
+PROFILES="[]"
 i=0
 for link in $links; do
   case "$link" in vless://*) ;; *) continue ;; esac
@@ -95,14 +99,38 @@ for link in $links; do
             + (if $extra!="" then ($extra|fromjson|del(.sessionIDKey,.sessionIDPlacement)) else {} end))} else {} end)
      )}') || { log "skip profile $host (cannot build)"; i=$((i-1)); continue; }
   outs=$(printf '%s' "$outs" | jq --argjson ob "$ob" '. + [$ob]')
-  printf '%s|%s
-' "$((TG_BASE+i-1))" "${name:-profile $i}" >> "$NAMES"
+  PROFILE_NAME=$name
+  [ -n "$PROFILE_NAME" ] || PROFILE_NAME="profile $i"
+  PROFILES=$(printf '%s' "$PROFILES" | jq --arg tag "p$i" --arg name "$PROFILE_NAME" '. + [{tag:$tag,name:$name}]')
+  case "$PROFILE_NAME" in
+    *Нидерланд*|*Netherlands*|*Nederland*|*🇳🇱*)
+      NL_TAGS=$(printf '%s' "$NL_TAGS" | jq --arg tag "p$i" '. + [$tag]') ;;
+    *Швеци*|*Sweden*|*Sverige*|*🇸🇪*)
+      SE_TAGS=$(printf '%s' "$SE_TAGS" | jq --arg tag "p$i" '. + [$tag]') ;;
+    *Хельсинк*|*Helsinki*|*Финлянди*|*Finland*|*🇫🇮*)
+      FI_TAGS=$(printf '%s' "$FI_TAGS" | jq --arg tag "p$i" '. + [$tag]') ;;
+  esac
+  printf '%s|%s\n' "$((TG_BASE+i-1))" "$PROFILE_NAME" >> "$NAMES"
 done
 
 [ "$i" -gt 0 ] || fail "no usable vless profiles found in the subscription"
 
-FB=$(printf '%s' "$outs" | jq -r '([.[] | select(.streamSettings.security=="reality") | .tag] + [.[0].tag]) | .[0]')
-jq -n --argjson outs "$outs" --argjson sp "$SOCKS_PORT" --arg lan "$LAN_IP" --argjson base "$TG_BASE" --arg fb "$FB" --argjson tp "$TPROXY_PORT" '
+[ "$(printf '%s' "$NL_TAGS" | jq 'length')" -gt 0 ] || fail "subscription has no Netherlands profiles; old config kept"
+[ "$(printf '%s' "$SE_TAGS" | jq 'length')" -gt 0 ] || fail "subscription has no Sweden profiles; old config kept"
+[ "$(printf '%s' "$FI_TAGS" | jq 'length')" -gt 0 ] || fail "subscription has no Helsinki/Finland profiles; old config kept"
+PRIORITY_FILE=/etc/xray-vk.priority.json
+if [ -s "$PRIORITY_FILE" ]; then
+  PRIORITY_NAMES=$(jq -ce 'select(type=="array" and length==3 and all(.[]; type=="string"))' "$PRIORITY_FILE" 2>/dev/null) || fail "priority settings invalid; old config kept"
+else
+  PRIORITY_NAMES=$(jq -cn --argjson p "$PROFILES" --argjson nl "$NL_TAGS" --argjson se "$SE_TAGS" --argjson fi "$FI_TAGS" '[($p[]|select(.tag==$nl[0])|.name),($p[]|select(.tag==$se[0])|.name),($p[]|select(.tag==$fi[0])|.name)]')
+fi
+PRIORITY_TAGS=$(jq -cn --argjson p "$PROFILES" --argjson names "$PRIORITY_NAMES" '[$names[] as $n | [$p[]|select(.name==$n)|.tag] | if length==1 then .[0] else empty end]')
+[ "$(printf '%s' "$PRIORITY_TAGS" | jq 'length')" -eq 3 ] || fail "selected profiles missing or duplicated; old config kept"
+P1=$(printf '%s' "$PRIORITY_TAGS" | jq -r '.[0]')
+P2=$(printf '%s' "$PRIORITY_TAGS" | jq -r '.[1]')
+P3=$(printf '%s' "$PRIORITY_TAGS" | jq -r '.[2]')
+
+jq -n --argjson outs "$outs" --arg p1 "$P1" --arg p2 "$P2" --arg p3 "$P3" --argjson sp "$SOCKS_PORT" --arg lan "$LAN_IP" --argjson base "$TG_BASE" --argjson tp "$TPROXY_PORT" '
   ($outs | map(.tag)) as $tags |
   ($tp > 0) as $tpon |
   {
@@ -114,24 +142,36 @@ jq -n --argjson outs "$outs" --argjson sp "$SOCKS_PORT" --arg lan "$LAN_IP" --ar
          settings:{network:"tcp,udp", followRedirect:true},
          streamSettings:{sockopt:{tproxy:"tproxy"}},
          sniffing:{enabled:true, destOverride:["http","tls","quic"]}}] else [] end)),
-  outbounds:($outs + [{tag:"direct", protocol:"freedom", streamSettings:{sockopt:{mark:255}}}]),
+  outbounds:($outs + [
+    {tag:"fallback-2", protocol:"loopback", settings:{inboundTag:"route-2"}},
+    {tag:"fallback-3", protocol:"loopback", settings:{inboundTag:"route-3"}},
+    {tag:"direct", protocol:"freedom", streamSettings:{sockopt:{mark:255}}}
+  ]),
   observatory:{subjectSelector:["p"], probeUrl:"https://www.gstatic.com/generate_204", probeInterval:"1m", enableConcurrency:true},
   routing:{domainStrategy:"AsIs",
-    balancers:[{tag:"best", selector:["p"], strategy:{type:"leastPing"}, fallbackTag:$fb}],
+    balancers:[
+      {tag:"priority-1", selector:[$p1], strategy:{type:"leastPing"}, fallbackTag:"fallback-2"},
+      {tag:"priority-2", selector:[$p2], strategy:{type:"leastPing"}, fallbackTag:"fallback-3"},
+      {tag:"priority-3", selector:[$p3], strategy:{type:"leastPing"}, fallbackTag:$p3}
+    ],
     rules:(
-      (if $tpon then [
+      [{type:"field", inboundTag:["route-2"], balancerTag:"priority-2"},
+       {type:"field", inboundTag:["route-3"], balancerTag:"priority-3"}]
+      + (if $tpon then [
         {type:"field", inboundTag:["tproxy-in"], protocol:["bittorrent"], outboundTag:"direct"},
         {type:"field", inboundTag:["tproxy-in"], ip:["geoip:private"], outboundTag:"direct"},
         {type:"field", inboundTag:["tproxy-in"],
          domain:["geosite:category-ru","geosite:ru-available-only-inside","domain:ru","domain:su","domain:xn--p1ai"], outboundTag:"direct"},
         {type:"field", inboundTag:["tproxy-in"], ip:["geoip:ru"], outboundTag:"direct"},
-        {type:"field", inboundTag:["tproxy-in"], balancerTag:"best"}] else [] end)
+        {type:"field", inboundTag:["tproxy-in"], balancerTag:"priority-1"}] else [] end)
       + ($tags | map({type:"field", inboundTag:[("tg-" + .)], outboundTag:.}))
-      + [{type:"field", inboundTag:["socks-in"], balancerTag:"best"}])}
+      + [{type:"field", inboundTag:["socks-in"], balancerTag:"priority-1"}])}
 }' > "$TMP" || fail "cannot assemble the config"
+
 
 "$XRAY" run -test -c "$TMP" >/tmp/xray-sub.test 2>&1 || { log "$(tail -3 /tmp/xray-sub.test | tr '\n' ' ')"; fail "new config did not pass xray -test, old config kept"; }
 
+printf '%s\n' "$PRIORITY_NAMES" > "$PRIORITY_FILE"
 # The subscription randomises shortId/spiderX on every request, so compare a signature
 # that ignores them; otherwise Xray would be restarted for nothing on each run.
 SIG_NEW=$(jq -S 'del(.. | .shortId?, .spiderX?)' "$TMP" | md5sum | cut -d' ' -f1)

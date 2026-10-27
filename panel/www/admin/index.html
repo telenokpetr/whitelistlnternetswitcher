@@ -87,7 +87,14 @@ textarea{width:100%;min-height:64px;resize:vertical}
 <h2>Подписка на роутере</h2>
 <div class="card">
   <textarea id="sub" spellcheck="false" placeholder="https://…"></textarea>
-  <div class="row" style="margin-top:8px"><button class="p" id="subsave">Сохранить и применить</button><span class="mut" id="sst"></span></div>
+  <div class="row" style="margin-top:8px"><button class="p" id="subsave">Сохранить и применить</button><button id="subupdate">Обновить подписку</button><button id="subping">Проверить пинг</button><span class="mut" id="sst"></span></div>
+  <div class="row" style="margin:12px 0 6px"><span>Порядок подключений:</span>
+    <label>1 <select id="priority1"></select></label>
+    <label>2 <select id="priority2"></select></label>
+    <label>3 <select id="priority3"></select></label>
+    <button class="p" id="prioritySave">Применить порядок</button><span class="mut" id="priorityStatus"></span></div>
+  <div class="mut">При сбое узел 1 → 2 → 3. После третьего подключения соединение не уходит напрямую.</div>
+  <div class="msg mut" id="subPingResult"></div>
   <div class="msg mut" id="slog"></div>
 </div>
 </main>
@@ -175,12 +182,31 @@ $('#master').addEventListener('change',async e=>{
   busy=true; await api({action:'master',on:e.target.checked}); busy=false; load();
 });
 $('#sub').addEventListener('input',()=>{$('#sub').dataset.dirty=1;});
+function watchSubUpdate(button){
+  button.disabled=true; $('#subsave').disabled=true; $('#subupdate').disabled=true;
+  $('#sst').textContent='Обновляю подписку…';
+  let t=0; const iv=setInterval(async()=>{
+    await load(); t++;
+    const log=S?.sub?.log||'';
+    if(/^(OK|ОШИБКА)/m.test(log)){
+      clearInterval(iv); $('#subsave').disabled=false; $('#subupdate').disabled=false;
+      $('#sst').textContent=/^ОШИБКА/m.test(log)?'Не удалось обновить':'Подписка обновлена';
+    }else if(t>20){
+      clearInterval(iv); $('#subsave').disabled=false; $('#subupdate').disabled=false;
+      $('#sst').textContent='Истекло время ожидания — проверьте журнал';
+    }
+  },3000);
+}
 $('#subsave').onclick=async()=>{
   const r=await api({action:'set_sub',url:$('#sub').value});
   if(!r.ok){$('#sst').textContent=r.error;return;}
-  delete $('#sub').dataset.dirty; $('#sst').textContent='Применяю… это занимает до минуты';
-  let t=0; const iv=setInterval(async()=>{await load();t++;
-    if(/^(OK|ОШИБКА)/m.test(S.sub.log)||t>20){clearInterval(iv);$('#sst').textContent='';}},4000);
+  delete $('#sub').dataset.dirty; watchSubUpdate($('#subsave'));
+};
+$('#subupdate').onclick=async()=>{
+  if($('#sub').dataset.dirty){$('#sst').textContent='Сначала сохраните новую ссылку';return;}
+  const r=await api({action:'sub_update'});
+  if(!r.ok){$('#sst').textContent=r.error;return;}
+  watchSubUpdate($('#subupdate'));
 };
 const dash=$('#dash');
 try{dash.open=localStorage.getItem('dash')!=='0';}catch(e){}
@@ -198,7 +224,43 @@ async function ping(){
   }catch(e){}
 }
 setInterval(()=>{if(dash.open)ping();},15000);
-load().then(()=>{ping();});
+load().then(()=>{ping();loadPriority();});
+$('#subping').onclick=async()=>{
+  const out=$('#subPingResult'); out.textContent='Проверяю узлы…';
+  try{
+    const r=await api({action:'ping'});
+    out.innerHTML=r.profiles.map(p=>'<div class="pg"><span class="dot '+cls(p.ms)+'"></span><span class="grow">'+esc(p.name)+'</span><span class="ms">'+(p.ms>0?p.ms+' мс':'нет ответа')+'</span></div>').join('')||'<div class="mut">нет данных</div>';
+  }catch(e){out.textContent='Не удалось получить результаты пинга';}
+};
+
+async function loadPriority(){
+  try{
+    const r=await api({action:'priority_get'});
+    const vals=[r.selected?.[0],r.selected?.[1],r.selected?.[2]];
+    for(let i=1;i<=3;i++){
+      const el=$('#priority'+i);
+      el.innerHTML=r.profiles.map(p=>'<option value="'+esc(p.name)+'">'+esc(p.name)+' · '+p.tag+'</option>').join('');
+      if(vals[i-1]) el.value=vals[i-1];
+    }
+  }catch(e){$('#priorityStatus').textContent='Не удалось загрузить подключения';}
+}
+$('#prioritySave').onclick=async()=>{
+  const names=[1,2,3].map(i=>$('#priority'+i).value);
+  if(new Set(names).size!==3){$('#priorityStatus').textContent='Выберите три разных подключения';return;}
+  const r=await api({action:'priority_set',names});
+  if(!r.ok){$('#priorityStatus').textContent=r.error;return;}
+  $('#prioritySave').disabled=true; $('#priorityStatus').textContent='Применяю порядок…';
+  let t=0; const iv=setInterval(async()=>{
+    await load(); t++;
+    const log=S?.sub?.log||'';
+    if(/^(OK|ОШИБКА)/m.test(log)){
+      clearInterval(iv); $('#prioritySave').disabled=false;
+      $('#priorityStatus').textContent=/^ОШИБКА/m.test(log)?'Не удалось применить порядок':'Порядок подключений применён';
+    }else if(t>20){
+      clearInterval(iv); $('#prioritySave').disabled=false; $('#priorityStatus').textContent='Проверьте журнал обновления';
+    }
+  },3000);
+};
 
 let newLink='';
 $('#pairbtn').onclick=async()=>{

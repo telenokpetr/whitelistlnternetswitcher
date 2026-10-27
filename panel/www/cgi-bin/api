@@ -62,7 +62,6 @@ status() {
 action=$(g .action)
 case "$action" in
 status|"") status ;;
-
 router_pair)
 	code=$(g .code | tr 'A-F' 'a-f')
 	printf '%s' "$code" | grep -qE '^[0-9a-f]{32}$' || { err "Проверьте код из бота"; exit 0; }
@@ -78,6 +77,7 @@ router_pair)
 	printf '%s' "$key" > "$D/server.key.tmp" && chmod 600 "$D/server.key.tmp" && mv "$D/server.key.tmp" "$D/server.key" || { rm -f "$D/server.key.tmp"; err "Не удалось сохранить ключ"; exit 0; }
 	unset key code req
 	ok ;;
+
 
 master)
 	if [ "$(g .on)" = "true" ]; then
@@ -102,6 +102,12 @@ set_sub)
 	printf '%s\n' "$u" > /etc/xray-sub.url
 	: > "$R/sub.log"
 	( sh -c 'if /usr/bin/xray-sub-update.sh >> /tmp/pc/sub.log 2>&1; then echo "OK: подписка применена" >> /tmp/pc/sub.log; else cp /etc/xray-sub.url.bak /etc/xray-sub.url; echo "ОШИБКА: возвращена прежняя подписка" >> /tmp/pc/sub.log; fi' >/dev/null 2>&1 </dev/null & )
+	ok ;;
+
+sub_update)
+	[ -s /etc/xray-sub.url ] || { err "Ссылка подписки не задана"; exit 0; }
+	: > "$R/sub.log"
+	( sh -c 'if /usr/bin/xray-sub-update.sh >> /tmp/pc/sub.log 2>&1; then echo "OK: подписка обновлена" >> /tmp/pc/sub.log; else echo "ОШИБКА: подписка не обновлена" >> /tmp/pc/sub.log; fi' >/dev/null 2>&1 </dev/null & )
 	ok ;;
 
 wifi)
@@ -139,6 +145,24 @@ name_set)
 	if [ -n "$nm" ]; then cfgset --arg m "$m" --arg n "$nm" '.names[$m]=$n'
 	else cfgset --arg m "$m" 'del(.names[$m])'; fi
 	ok ;;
+
+priority_get)
+  hdr
+  ports=$(cat /etc/xray-vk.ports 2>/dev/null | jq -Rn '[inputs|split("|")|{tag:("p"+((.[0]|tonumber)-10810|tostring)),name:.[1]}]')
+  selected=$(cat /etc/xray-vk.priority.json 2>/dev/null || echo '[]')
+  jq -n --argjson profiles "$ports" --argjson selected "$selected" '{profiles:$profiles,selected:$selected}'
+  ;;
+
+priority_set)
+  names=$(printf '%s' "$BODY" | jq -ce '.names | select(type=="array" and length==3 and all(.[];type=="string"))' 2>/dev/null) || { err "Выберите три подключения"; exit 0; }
+  [ "$(printf '%s' "$names" | jq 'unique|length')" -eq 3 ] || { err "Подключения должны отличаться"; exit 0; }
+  ports=$(cat /etc/xray-vk.ports 2>/dev/null | jq -Rn '[inputs|split("|")|.[1]]')
+  valid=$(jq -en --argjson n "$names" --argjson p "$ports" '$n|all(.[] as $v; any($p[]; .==$v))' 2>/dev/null) || { err "Одно из подключений отсутствует в подписке"; exit 0; }
+  printf '%s\n' "$names" > /etc/xray-vk.priority.json
+  chmod 600 /etc/xray-vk.priority.json
+  : > "$R/sub.log"
+  ( sh -c 'if /usr/bin/xray-sub-update.sh >> /tmp/pc/sub.log 2>&1; then echo "OK: приоритет применён" >> /tmp/pc/sub.log; else echo "ОШИБКА: приоритет не применён" >> /tmp/pc/sub.log; fi' >/dev/null 2>&1 </dev/null & )
+  ok ;;
 
 ping)
 	hdr

@@ -86,14 +86,11 @@ textarea{width:100%;min-height:64px;resize:vertical}
 
 <h2>Подписка на роутере</h2>
 <div class="card">
-  <textarea id="sub" spellcheck="false" placeholder="https://…"></textarea>
+  <textarea id="sub" spellcheck="false" rows="3" placeholder="Одна ссылка на строку. Можно добавить несколько подписок: узлы объединятся"></textarea>
   <div class="row" style="margin-top:8px"><button class="p" id="subsave">Сохранить и применить</button><button id="subupdate">Обновить подписку</button><button id="subping">Проверить пинг</button><span class="mut" id="sst"></span></div>
-  <div class="row" style="margin:12px 0 6px"><span>Порядок подключений:</span>
-    <label>1 <select id="priority1"></select></label>
-    <label>2 <select id="priority2"></select></label>
-    <label>3 <select id="priority3"></select></label>
-    <button class="p" id="prioritySave">Применить порядок</button><span class="mut" id="priorityStatus"></span></div>
-  <div class="mut">При сбое используются следующие доступные узлы. Если выбранный узел отсутствует в подписке, он будет пропущен.</div>
+  <details id="srvBox" open style="margin:12px 0 6px"><summary style="cursor:pointer"><b>Серверы</b> <span class="mut" id="srvCur"></span> <span class="mut" id="priorityStatus"></span></summary>
+  <div id="srvList"></div></details>
+  <div class="mut">Нажмите на сервер, чтобы подключаться через него. Если он недоступен, роутер временно использует другие узлы подписки.</div>
   <div class="msg mut" id="subPingResult"></div>
   <div class="msg mut" id="slog"></div>
 </div>
@@ -239,38 +236,54 @@ $('#subping').onclick=async()=>{
   }catch(e){out.textContent='Не удалось получить результаты пинга';}
 };
 
+let srvBusy=false,SRV=null,PING={};
+const flagName=n=>n.replace(/^[^\p{L}\p{N}]+/u,'')||n;
+function ccOf(n){const c=[...n].filter(ch=>ch.codePointAt(0)>=0x1F1E6&&ch.codePointAt(0)<=0x1F1FF).map(ch=>String.fromCharCode(ch.codePointAt(0)-0x1F1E6+65)).join('');return c;}
+function renderSrv(){
+  if(!SRV)return;
+  const cur=SRV.selected?.[0];
+  let html='';
+  SRV.profiles.forEach(p=>{
+    if(p.header){html+='<div class="mut" style="margin:10px 0 2px;font-weight:700">'+esc(p.name)+'</div>';return;}
+    const sel=p.key===cur||(p.name===cur&&SRV.profiles.filter(x=>x.name===p.name).length===1);
+    const ms=PING[p.tag];
+    const pt=ms===undefined?'…':ms>0?ms+' мс':'нет ответа';
+    const title=(ccOf(p.name)||'')+' '+esc(flagName(p.name)).trim();
+    html+='<div class="pg srv" data-k="'+esc(p.key)+'" style="cursor:pointer"><span class="dot '+(ms===undefined?'':cls(ms))+'" style="'+(sel?'box-shadow:0 0 0 2px var(--ok)':'')+'"></span><span class="grow">'+title.trim()+' <span class="mut">'+esc(p.host||'')+':'+esc(p.port||'')+' '+esc(p.net||'')+'</span></span><span class="ms '+(sel?'':'mut')+'">'+(sel?'✓ ':'')+pt+'</span></div>';
+  });
+  $('#srvList').innerHTML=html;
+  const cp=SRV.profiles.find(p=>!p.header&&(p.key===cur||(p.name===cur&&SRV.profiles.filter(x=>x.name===p.name).length===1)));
+  $('#srvCur').textContent=cp?'· '+flagName(cp.name)+(PING[cp.tag]>0?' · '+PING[cp.tag]+' мс':''):'';
+  document.querySelectorAll('#srvList .srv').forEach(el=>el.onclick=()=>pickServer(el.dataset.k));
+}
+async function pingSrv(){
+  if(document.hidden)return;
+  try{const r=await api({action:'ping'});PING={};r.profiles.forEach(p=>PING[p.tag]=p.ms);renderSrv();}catch(e){}
+}
 async function loadPriority(){
   try{
-    const r=await api({action:'priority_get'});
-    const vals=[r.selected?.[0],r.selected?.[1],r.selected?.[2]];
-    const names=new Set(r.profiles.map(p=>p.name));
-    if(!names.size) $('#priorityStatus').textContent='В подписке нет доступных профилей';
-    else if(vals.filter(Boolean).some(v=>!names.has(v))) $('#priorityStatus').textContent='Некоторые выбранные узлы отсутствуют; используются доступные';
-    else $('#priorityStatus').textContent='Можно выбрать от одного до трёх разных подключений';
-    for(let i=1;i<=3;i++){
-      const el=$('#priority'+i);
-      el.innerHTML='<option value="">Не выбрано</option>'+r.profiles.map(p=>'<option value="'+esc(p.name)+'">'+esc(p.name)+' · '+p.tag+'</option>').join('');
-      if(vals[i-1] && names.has(vals[i-1])) el.value=vals[i-1];
-    }
+    SRV=await api({action:'priority_get'});
+    if(!SRV.profiles.length){$('#srvList').innerHTML='';$('#priorityStatus').textContent='В подписке нет доступных профилей';return;}
+    $('#priorityStatus').textContent=srvBusy?'Применяю…':'';
+    renderSrv(); pingSrv();
   }catch(e){$('#priorityStatus').textContent='Не удалось загрузить подключения';}
 }
-$('#prioritySave').onclick=async()=>{
-  const names=[1,2,3].map(i=>$('#priority'+i).value).filter(Boolean);
-  if(!names.length||new Set(names).size!==names.length){$('#priorityStatus').textContent='Выберите от одного до трёх разных подключений';return;}
-  const r=await api({action:'priority_set',names});
-  if(!r.ok){$('#priorityStatus').textContent=r.error;return;}
-  $('#prioritySave').disabled=true; $('#priorityStatus').textContent='Применяю порядок…';
+try{$('#srvBox').open=localStorage.getItem('srv')!=='0';}catch(e){}
+$('#srvBox').addEventListener('toggle',()=>{try{localStorage.setItem('srv',$('#srvBox').open?'1':'0');}catch(e){}});
+setInterval(()=>{if($('#srvBox').open)pingSrv();},30000);
+async function pickServer(key){
+  if(srvBusy)return; srvBusy=true; $('#priorityStatus').textContent='Применяю…';
+  const r=await api({action:'priority_set',names:[key]});
+  if(!r.ok){srvBusy=false;$('#priorityStatus').textContent=r.error;return;}
   let t=0; const iv=setInterval(async()=>{
     await load(); t++;
     const log=S?.sub?.log||'';
-    if(/^(OK|ОШИБКА)/m.test(log)){
-      clearInterval(iv); $('#prioritySave').disabled=false;
-      $('#priorityStatus').textContent=/^ОШИБКА/m.test(log)?'Не удалось применить порядок':'Порядок подключений применён';
-    }else if(t>20){
-      clearInterval(iv); $('#prioritySave').disabled=false; $('#priorityStatus').textContent='Проверьте журнал обновления';
+    if(/^(OK|ОШИБКА)/m.test(log)||t>20){
+      clearInterval(iv); srvBusy=false; await loadPriority();
+      $('#priorityStatus').textContent=/^ОШИБКА/m.test(log)?'Не удалось применить':t>20?'Проверьте журнал обновления':'Применено';
     }
   },3000);
-};
+}
 
 let newLink='';
 $('#pairbtn').onclick=async()=>{

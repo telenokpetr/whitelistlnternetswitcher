@@ -25,7 +25,7 @@ status() {
 	tp=false; tp_on && tp=true
 	xr=false; pidof xray >/dev/null && xr=true
 	prof=$(jq '[.outbounds[]|select(.settings.vnext)]|length' /etc/xray-vk.json 2>/dev/null || echo 0)
-	url=$(head -n1 /etc/xray-sub.url 2>/dev/null)
+	url=$(cat /etc/xray-sub.url 2>/dev/null)
 	sublog=$(tail -n 3 "$R/sub.log" 2>/dev/null)
 	wifioff=false; [ -f "$R/wifi-off" ] && wifioff=true
 	jq -n --argjson leases "$leases" --argjson neigh "$neigh" --argjson offs "$offs" --argjson active "$active" \
@@ -96,8 +96,12 @@ bypass_dev)
 	ok ;;
 
 set_sub)
-	u=$(g .url | tr -d ' \r\n')
-	case "$u" in http://*|https://*) ;; *) err "Ссылка должна начинаться с http:// или https://"; exit 0 ;; esac
+	u=$(g .url | tr ', ' '
+
+
+' | grep -v '^$')
+	[ -n "$u" ] || { err "Укажите ссылку подписки"; exit 0; }
+	for x in $u; do case "$x" in http://*|https://*) ;; *) err "Каждая ссылка должна начинаться с http:// или https://"; exit 0 ;; esac; done
 	cp /etc/xray-sub.url /etc/xray-sub.url.bak 2>/dev/null
 	printf '%s\n' "$u" > /etc/xray-sub.url
 	: > "$R/sub.log"
@@ -149,16 +153,19 @@ name_set)
 priority_get)
   hdr
   profiles_file=/etc/xray-vk.candidates; [ -s "$profiles_file" ] || profiles_file=/etc/xray-vk.ports
-  ports=$(cat "$profiles_file" 2>/dev/null | jq -Rn '[inputs|split("|")|{tag:("p"+((.[0]|tonumber)-10810|tostring)),name:.[1]}]')
+  ports=$(cat "$profiles_file" 2>/dev/null | jq -Rn '[inputs|split("|")|{tag:("p"+((.[0]|tonumber)-10810|tostring)),name:.[1]}]
+    | reduce .[] as $x ({seen:{},out:[]}; .seen[$x.name]=((.seen[$x.name]//0)+1) | .out += [$x + {key:($x.name+"#"+(.seen[$x.name]|tostring))}]) | .out')
+  hosts=$(jq -c '[.outbounds[]|select(.settings.vnext)|{tag:.tag,host:.settings.vnext[0].address,port:.settings.vnext[0].port,net:.streamSettings.network}]' /etc/xray-vk.json 2>/dev/null || echo '[]')
   selected=$(cat /etc/xray-vk.priority.json 2>/dev/null || echo '[]')
-  jq -n --argjson profiles "$ports" --argjson selected "$selected" '{profiles:$profiles,selected:$selected}'
+  jq -n --argjson profiles "$ports" --argjson hosts "$hosts" --argjson selected "$selected" '
+    {profiles:[$profiles[] | . as $p | $p + (($hosts[]|select(.tag==$p.tag)) // {}) | . + {header:(.host=="192.0.2.1")}], selected:$selected}'
   ;;
 
 priority_set)
   names=$(printf '%s' "$BODY" | jq -ce '.names | select(type=="array" and length>=1 and length<=3 and all(.[];type=="string" and length>0))' 2>/dev/null) || { err "Выберите от одного до трёх подключений"; exit 0; }
   [ "$(printf '%s' "$names" | jq 'unique|length')" -eq "$(printf '%s' "$names" | jq 'length')" ] || { err "Подключения должны отличаться"; exit 0; }
   profiles_file=/etc/xray-vk.candidates; [ -s "$profiles_file" ] || profiles_file=/etc/xray-vk.ports
-  ports=$(cat "$profiles_file" 2>/dev/null | jq -Rn '[inputs|split("|")|.[1]]')
+  ports=$(cat "$profiles_file" 2>/dev/null | jq -Rn '[inputs|split("|")|.[1]] | . as $n | [range(0;length) as $i | $n[$i], ($n[$i] + "#" + (([$n[0:$i+1][]|select(.==$n[$i])]|length)|tostring))] | unique')
   valid=$(jq -en --argjson n "$names" --argjson p "$ports" '$n|all(.[]; . as $v | any($p[]; .==$v))' 2>/dev/null) || { err "Одно из подключений отсутствует в подписке"; exit 0; }
   printf '%s\n' "$names" > /etc/xray-vk.priority.pending.json
   chmod 600 /etc/xray-vk.priority.pending.json
@@ -171,7 +178,7 @@ ping)
 	T=/tmp/pc/ping.$$; rm -rf "$T"; mkdir -p "$T"
 	jq -r '.outbounds[]|select(.settings.vnext)|"\(.tag) \(.settings.vnext[0].address) \(.settings.vnext[0].port)"' /etc/xray-vk.json 2>/dev/null | {
 		while read -r tag h p; do
-			( t=$(curl -sk -o /dev/null --connect-timeout 3 -m 5 -w '%{time_connect}' "https://$h:$p/" 2>/dev/null); echo "$tag $h $p ${t:-0}" > "$T/p.$tag" ) &
+			( n=${tag#p}; if [ "$h" = 192.0.2.1 ]; then t=0; else t=$(curl -s -o /dev/null --connect-timeout 5 -m 8 -x "socks5h://192.168.1.1:$((10810+n))" -w '%{time_starttransfer}' "http://www.gstatic.com/generate_204" 2>/dev/null); fi; echo "$tag $h $p ${t:-0}" > "$T/p.$tag" ) &
 		done
 		wait; }
 	ip neigh show dev br-lan | awk '$1 ~ /\./ && $2=="lladdr" {print tolower($3), $1}' | {

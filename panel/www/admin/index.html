@@ -57,7 +57,6 @@ textarea{width:100%;min-height:64px;resize:vertical}
 <header class="hd"><i class="lg"></i><h1>Дед Обход · Панель</h1></header>
 
 <details class="card" id="dash"><summary><b>Дашборд</b> <span class="mut" id="dsum">…</span></summary>
-  <div class="mut" style="margin:10px 0 4px">Подписки (сервер доступен, мс)</div><div id="dprof"></div>
   <div class="mut" style="margin:12px 0 4px">Устройства (ping, мс)</div><div id="ddev"></div>
 </details>
 
@@ -87,11 +86,10 @@ textarea{width:100%;min-height:64px;resize:vertical}
 <h2>Подписка на роутере</h2>
 <div class="card">
   <textarea id="sub" spellcheck="false" rows="3" placeholder="Одна ссылка на строку. Можно добавить несколько подписок: узлы объединятся"></textarea>
-  <div class="row" style="margin-top:8px"><button class="p" id="subsave">Сохранить и применить</button><button id="subupdate">Обновить подписку</button><button id="subping">Проверить пинг</button><span class="mut" id="sst"></span></div>
+  <div class="row" style="margin-top:8px"><button class="p" id="subsave">Сохранить и применить</button><button id="subupdate">Обновить подписку</button><span class="mut" id="sst"></span></div>
   <details id="srvBox" open style="margin:12px 0 6px"><summary style="cursor:pointer"><b>Серверы</b> <span class="mut" id="srvCur"></span> <span class="mut" id="priorityStatus"></span></summary>
   <div id="srvList"></div></details>
   <div class="mut">Нажмите на сервер, чтобы подключаться через него. Если он недоступен, роутер временно использует другие узлы подписки.</div>
-  <div class="msg mut" id="subPingResult"></div>
   <div class="msg mut" id="slog"></div>
 </div>
 </main>
@@ -220,22 +218,13 @@ async function ping(){
   try{
     const r=await api({action:'ping'});
     const names={}; if(S) S.devices.forEach(d=>names[d.mac]=d.name);
-    $('#dprof').innerHTML=r.profiles.map(p=>`<div class="pg"><span class="dot ${cls(p.ms)}"></span><span>${esc(p.name)}</span><span class="mut">${esc(p.host)}:${p.port}</span><span class="ms">${p.ms>0?p.ms+' мс':'нет ответа'}</span></div>`).join('')||'<div class="mut">нет данных</div>';
     $('#ddev').innerHTML=r.devices.map(d=>`<div class="pg"><span class="dot ${cls(d.ms)}"></span><span>${esc(names[d.mac]||d.mac)}</span><span class="mut">${esc(d.ip)}</span><span class="ms">${d.ms>0?d.ms+' мс':'нет ответа'}</span></div>`).join('')||'<div class="mut">нет данных</div>';
-    const pu=r.profiles.filter(p=>p.ms>0).length,du=r.devices.filter(d=>d.ms>0).length;
-    $('#dsum').textContent=`· подписки ${pu}/${r.profiles.length} · устройства ${du}/${r.devices.length}`;
+    const du=r.devices.filter(d=>d.ms>0).length;
+    $('#dsum').textContent=`· устройства ${du}/${r.devices.length}`;
   }catch(e){}
 }
 setInterval(()=>{if(dash.open)ping();},15000);
 load().then(()=>{ping();loadPriority();});
-$('#subping').onclick=async()=>{
-  const out=$('#subPingResult'); out.textContent='Проверяю узлы…';
-  try{
-    const r=await api({action:'ping'});
-    out.innerHTML=r.profiles.map(p=>'<div class="pg"><span class="dot '+cls(p.ms)+'"></span><span class="grow">'+esc(p.name)+'</span><span class="ms">'+(p.ms>0?p.ms+' мс':'нет ответа')+'</span></div>').join('')||'<div class="mut">нет данных</div>';
-  }catch(e){out.textContent='Не удалось получить результаты пинга';}
-};
-
 let srvBusy=false,SRV=null,PING={};
 const flagName=n=>n.replace(/^[^\p{L}\p{N}]+/u,'')||n;
 function ccOf(n){const c=[...n].filter(ch=>ch.codePointAt(0)>=0x1F1E6&&ch.codePointAt(0)<=0x1F1FF).map(ch=>String.fromCharCode(ch.codePointAt(0)-0x1F1E6+65)).join('');return c;}

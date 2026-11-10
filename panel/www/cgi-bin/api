@@ -176,11 +176,22 @@ priority_set)
 ping)
 	hdr
 	T=/tmp/pc/ping.$$; rm -rf "$T"; mkdir -p "$T"
-	jq -r '.outbounds[]|select(.settings.vnext)|"\(.tag) \(.settings.vnext[0].address) \(.settings.vnext[0].port)"' /etc/xray-vk.json 2>/dev/null | {
-		while read -r tag h p; do
-			( n=${tag#p}; if [ "$h" = 192.0.2.1 ]; then t=0; else t=$(curl -s -o /dev/null --connect-timeout 5 -m 8 -x "socks5h://192.168.1.1:$((10810+n))" -w '%{time_starttransfer}' "http://www.gstatic.com/generate_204" 2>/dev/null); fi; echo "$tag $h $p ${t:-0}" > "$T/p.$tag" ) &
-		done
-		wait; }
+	# profile probes are heavy (one curl through xray each): only on request, 4 at a time, cached 30 s
+	if [ "$(g .profiles)" = "true" ]; then
+		C=/tmp/pc/ping.profiles
+		if [ -s "$C" ] && [ $(( $(date +%s) - $(date -r "$C" +%s 2>/dev/null || echo 0) )) -lt 30 ]; then
+			cp "$C" "$T/p.cache"
+		else
+			jq -r '.outbounds[]|select(.settings.vnext)|"\(.tag) \(.settings.vnext[0].address) \(.settings.vnext[0].port)"' /etc/xray-vk.json 2>/dev/null | {
+				k=0
+				while read -r tag h p; do
+					( n=${tag#p}; if [ "$h" = 192.0.2.1 ]; then t=0; else t=$(curl -s -o /dev/null --connect-timeout 5 -m 8 -x "socks5h://192.168.1.1:$((10810+n))" -w '%{time_starttransfer}' "http://www.gstatic.com/generate_204" 2>/dev/null); fi; echo "$tag $h $p ${t:-0}" > "$T/p.$tag" ) &
+					k=$((k+1)); [ $((k % 4)) -eq 0 ] && wait
+				done
+				wait; }
+			cat "$T"/p.p* > "$C" 2>/dev/null
+		fi
+	fi
 	ip neigh show dev br-lan | awk '$1 ~ /\./ && $2=="lladdr" {print tolower($3), $1}' | {
 		while read -r mac ip; do
 			( r=$(ping -c1 -W1 "$ip" 2>/dev/null | sed -n 's/.*time=\([0-9.]*\).*/\1/p'); echo "$mac $ip ${r:-0}" > "$T/d.$ip" ) &

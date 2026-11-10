@@ -247,7 +247,7 @@ function renderSrv(){
 }
 async function pingSrv(){
   if(document.hidden)return;
-  try{const r=await api({action:'ping'});PING={};r.profiles.forEach(p=>PING[p.tag]=p.ms);renderSrv();}catch(e){}
+  try{const r=await api({action:'ping',profiles:true});PING={};r.profiles.forEach(p=>PING[p.tag]=p.ms);renderSrv();}catch(e){}
 }
 async function loadPriority(){
   try{
@@ -259,7 +259,7 @@ async function loadPriority(){
 }
 try{$('#srvBox').open=localStorage.getItem('srv')!=='0';}catch(e){}
 $('#srvBox').addEventListener('toggle',()=>{try{localStorage.setItem('srv',$('#srvBox').open?'1':'0');}catch(e){}});
-setInterval(()=>{if($('#srvBox').open)pingSrv();},30000);
+setInterval(()=>{if($('#srvBox').open)pingSrv();},60000);
 async function pickServer(key){
   if(srvBusy)return; srvBusy=true; $('#priorityStatus').textContent='Применяю…';
   const r=await api({action:'priority_set',names:[key]});
